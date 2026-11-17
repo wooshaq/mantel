@@ -25,9 +25,14 @@ jobs:
             if gh release view "v$v" >/dev/null 2>&1; then
               echo "v$v already published"; continue
             fi
+            # Alphas and betas are pre-releases: the stable one stays "Latest".
+            case "$v" in
+              *alpha*|*beta*) kind="--prerelease --latest=false" ;;
+              *) kind="--latest" ;;
+            esac
             gh release create "v$v" "$v"/*.exe \
               --target main \
               --title "Mantel $v" \
               --notes-file "$v/notes.md" \
-              --latest
+              $kind
           done
