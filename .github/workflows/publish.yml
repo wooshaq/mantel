@@ -1,0 +1,33 @@
+# Publishes the exe files in this branch as a GitHub Release. Each version folder holds the
+# exact, already VirusTotal-scanned files plus notes.md; a release that exists is left alone.
+name: Publish release
+
+on:
+  push:
+    branches: [wydania]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create missing releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for dir in */; do
+            v="${dir%/}"
+            [ -f "$v/notes.md" ] || continue
+            if gh release view "v$v" >/dev/null 2>&1; then
+              echo "v$v already published"; continue
+            fi
+            gh release create "v$v" "$v"/*.exe \
+              --target main \
+              --title "Mantel $v" \
+              --notes-file "$v/notes.md" \
+              --latest
+          done
