@@ -605,4 +605,11 @@ export const ru: Catalog = {
   "Turn HDR off": "Выключить HDR",
   "Turn HDR on": "Включить HDR",
   "Minimizing, closing or Esc pressed twice hides Mantel next to the clock; the icon brings it back": "Сворачивание, закрытие или двойное нажатие Esc прячет Mantel возле часов; значок возвращает его",
+  "Built-in screen": "Встроенный экран",
+  "External screen": "Внешний экран",
+  "Both screens": "Оба экрана",
+  "Same on both screens": "Одно и то же на обоих экранах",
+  "Picture on: {screen}": "Изображение: {screen}",
+  "No external screen is connected": "Внешний экран не подключён",
+  "Switching screens works on Windows only": "Переключение экранов работает только в Windows",
 };

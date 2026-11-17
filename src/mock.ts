@@ -231,7 +231,7 @@ const trailers: Record<number, string> = {
 
 const SAMPLE_ACHIEVEMENTS = ["First Steps", "Night Owl", "Collector", "Untouchable", "Speed Demon", "Completionist", "Explorer", "Sharpshooter"];
 
-let quick: Quick = { volume: 45, muted: false, brightness: 80, wifi: { connected: true, name: "Home Wi-Fi", signal: 72 } };
+let quick: Quick = { volume: 45, muted: false, brightness: 80, display: "internal" };
 let running: Running[] = [];
 let autostart = false;
 /** As on the Ally: Xbox mode, Developer Mode off, so setup has the home app to offer. */
@@ -514,6 +514,11 @@ export const mockApi: Api = {
   },
   async setBrightness(level) {
     quick = { ...quick, brightness: level };
+  },
+  async switchDisplay() {
+    await wait(600);
+    quick = { ...quick, display: quick.display === "internal" ? "external" : "internal" };
+    return quick.display!;
   },
   async powerAction(action) {
     console.info("[mock] power action", action);

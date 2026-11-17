@@ -38,23 +38,15 @@ pub struct Quick {
     pub muted: bool,
     /// 0–100; empty when the screen can't be dimmed from here, like an external monitor.
     pub brightness: Option<u8>,
-    /// Empty without a Wi-Fi adapter.
-    pub wifi: Option<Wifi>,
+    /// Which screens show the picture; empty when Windows doesn't say.
+    pub display: Option<crate::display::Mode>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Wifi {
-    pub connected: bool,
-    pub name: Option<String>,
-    /// Signal quality, 0–100.
-    pub signal: Option<u8>,
-}
 
 #[cfg(windows)]
 pub fn quick() -> Quick {
     let (volume, muted) = controls::volume().map_or((None, false), |(v, m)| (Some(v), m));
-    Quick { volume, muted, brightness: controls::brightness(), wifi: controls::wifi() }
+    Quick { volume, muted, brightness: controls::brightness(), display: crate::display::mode() }
 }
 
 #[cfg(not(windows))]
@@ -80,8 +72,7 @@ pub fn set_brightness(_: u8) -> Result<(), String> {
     Err("Brightness is only available on Windows".into())
 }
 
-/// Volume through Core Audio, the built-in panel's brightness through WMI, Wi-Fi through
-/// the WLAN API. Commands call these on worker threads, each joining COM for the call.
+/// Volume through Core Audio, the built-in panel's brightness through WMI. Commands call these on worker threads, each joining COM for the call.
 #[cfg(windows)]
 mod controls {
     use windows::core::{w, BSTR, PCWSTR};
@@ -98,7 +89,6 @@ mod controls {
         WBEM_INFINITE,
     };
 
-    use super::Wifi;
 
     struct Com(bool);
 
@@ -223,47 +213,6 @@ mod controls {
                 .map_err(text)?;
         }
         Ok(())
-    }
-
-    /// The connected network's name and signal. Windows 11 hides the name from apps without
-    /// location access; the rest still comes through.
-    pub fn wifi() -> Option<Wifi> {
-        use std::ptr::{null, null_mut};
-        use windows_sys::Win32::NetworkManagement::WiFi::{
-            wlan_interface_state_connected, wlan_intf_opcode_current_connection, WlanCloseHandle, WlanEnumInterfaces, WlanFreeMemory, WlanOpenHandle,
-            WlanQueryInterface, WLAN_CONNECTION_ATTRIBUTES, WLAN_INTERFACE_INFO_LIST,
-        };
-        unsafe {
-            let (mut version, mut handle) = (0, null_mut());
-            if WlanOpenHandle(2, null(), &mut version, &mut handle) != 0 {
-                return None;
-            }
-            let mut list: *mut WLAN_INTERFACE_INFO_LIST = null_mut();
-            let mut found = None;
-            if WlanEnumInterfaces(handle, null(), &mut list) == 0 && !list.is_null() {
-                let items = std::slice::from_raw_parts((*list).InterfaceInfo.as_ptr(), (*list).dwNumberOfItems as usize);
-                if !items.is_empty() {
-                    let mut wifi = Wifi { connected: false, name: None, signal: None };
-                    if let Some(item) = items.iter().find(|i| i.isState == wlan_interface_state_connected) {
-                        wifi.connected = true;
-                        let (mut size, mut data) = (0, null_mut());
-                        if WlanQueryInterface(handle, &item.InterfaceGuid, wlan_intf_opcode_current_connection, null(), &mut size, &mut data, null_mut()) == 0
-                            && !data.is_null()
-                        {
-                            let link = &(*(data as *const WLAN_CONNECTION_ATTRIBUTES)).wlanAssociationAttributes;
-                            let ssid = &link.dot11Ssid.ucSSID[..(link.dot11Ssid.uSSIDLength as usize).min(32)];
-                            wifi.name = Some(String::from_utf8_lossy(ssid).to_string()).filter(|n| !n.is_empty());
-                            wifi.signal = Some(link.wlanSignalQuality.min(100) as u8);
-                            WlanFreeMemory(data);
-                        }
-                    }
-                    found = Some(wifi);
-                }
-                WlanFreeMemory(list as _);
-            }
-            WlanCloseHandle(handle, null());
-            found
-        }
     }
 }
 

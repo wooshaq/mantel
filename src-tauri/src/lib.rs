@@ -1,4 +1,5 @@
 mod apps;
+mod display;
 mod art;
 mod fse;
 mod gamepass;
@@ -985,6 +986,12 @@ async fn set_brightness(level: u8) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || system::set_brightness(level)).await.map_err(|e| e.to_string())?
 }
 
+/// The built-in screen or the external one, like Windows+P; returns the new arrangement.
+#[tauri::command]
+async fn switch_display() -> Result<display::Mode, String> {
+    tauri::async_runtime::spawn_blocking(display::switch).await.map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn full_screen_mode() -> fse::Mode {
     fse::mode()
@@ -1084,6 +1091,7 @@ pub fn run() {
             set_muted,
             set_brightness,
             full_screen_mode,
+            switch_display,
             client_log,
             accounts_status,
             open_url,

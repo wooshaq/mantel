@@ -240,11 +240,14 @@ export interface Running {
 }
 
 /** Control center state; whatever the device lacks is left out. */
+export type DisplayMode = "internal" | "external" | "extend" | "clone";
+
 export interface Quick {
   volume?: number | null;
   muted: boolean;
   brightness?: number | null;
-  wifi?: { connected: boolean; name?: string | null; signal?: number | null } | null;
+  /** Which screens show the picture, as Windows+P switches them. */
+  display?: DisplayMode | null;
 }
 
 export interface Power {

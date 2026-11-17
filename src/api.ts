@@ -1,4 +1,4 @@
-import type { AccountsStatus, Achievement, AppChoice, ArtChoices, ArtKind, Details, Editions, Game, InstallProgress, Listing, Power, Quick, Running, Settings, SteamProfile, StoreHit, StoreHome, StorePage, StoreShelf, Suggestion } from "./types";
+import type { AccountsStatus, Achievement, AppChoice, DisplayMode, ArtChoices, ArtKind, Details, Editions, Game, InstallProgress, Listing, Power, Quick, Running, Settings, SteamProfile, StoreHit, StoreHome, StorePage, StoreShelf, Suggestion } from "./types";
 import { mockApi } from "./mock";
 import { steamLanguage } from "./i18n";
 
@@ -71,6 +71,8 @@ export interface Api {
   openGameFolder(id: string): Promise<void>;
   powerStatus(): Promise<Power>;
   quickStatus(): Promise<Quick>;
+  /** The built-in screen or the external one, like Windows+P; resolves with the new one. */
+  switchDisplay(): Promise<DisplayMode>;
   setVolume(level: number): Promise<void>;
   setMuted(muted: boolean): Promise<void>;
   setBrightness(level: number): Promise<void>;
@@ -149,6 +151,7 @@ const tauriApi: Api = {
   openGameFolder: (id) => call("open_game_folder", { id }),
   powerStatus: () => call("power_status"),
   quickStatus: () => call("quick_status"),
+  switchDisplay: () => call("switch_display"),
   setVolume: (level) => call("set_volume", { level }),
   setMuted: (muted) => call("set_muted", { muted }),
   setBrightness: (level) => call("set_brightness", { level }),

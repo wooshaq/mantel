@@ -5,7 +5,7 @@ import { Layer, useInput } from "../input";
 import { closeRunning, gameById, isGame, rescan, toast, useStore } from "../store";
 import { installLabel } from "../util";
 import { DOWNLOAD } from "./Glyph";
-import type { Power, Quick } from "../types";
+import type { DisplayMode, Power, Quick } from "../types";
 import { useHints } from "./Hints";
 import { Battery, timeText, useClock } from "./TopBar";
 
@@ -41,6 +41,7 @@ const ICONS: Record<string, React.ReactNode> = {
   restart: <path d="M4 12a8 8 0 1 0 2.3-5.7M4 4v5h5" />,
   shutdown: <path d="M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0" />,
   quit: <path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10" />,
+  display: <><rect x="2.5" y="6" width="11" height="8" rx="1.6" /><rect x="14.5" y="9" width="7" height="11" rx="1.6" /><path d="M6 18h4M8 14v4" /></>,
   volume: <><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" /></>,
   muted: <><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path d="m16 9.5 5 5M21 9.5l-5 5" /></>,
   brightness: <><circle cx="12" cy="12" r="3.6" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4" /></>,
@@ -54,20 +55,6 @@ function Icon({ id }: { id: string }) {
   );
 }
 
-function WifiStatus({ wifi }: { wifi: NonNullable<Quick["wifi"]> }) {
-  const signal = wifi.signal ?? 100;
-  const bars = !wifi.connected ? 0 : signal >= 70 ? 3 : signal >= 40 ? 2 : 1;
-  const arcs = ["M8.6 15.4a5 5 0 0 1 6.8 0", "M5.5 12.2a9.5 9.5 0 0 1 13 0", "M2.5 9a14 14 0 0 1 19 0"];
-  return (
-    <span className="cc-chip">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-        {arcs.map((d, n) => <path key={d} d={d} className={n < bars ? "" : "off"} />)}
-        <circle cx="12" cy="18.6" r="1.1" fill="currentColor" className={wifi.connected ? "" : "off"} />
-      </svg>
-      {wifi.connected ? wifi.name ?? t("Connected") : t("Not connected")}
-    </span>
-  );
-}
 
 /**
  * Sends the latest value only: while one call is out, newer values replace each other, so
@@ -194,7 +181,27 @@ export function QuickMenu() {
   // Like a card's own menu: "Close game" is there only when the selected game is running.
   const run = running.find((r) => r.id === selected);
   const game = gameById(run?.id ?? null);
+  const displayLabel: Record<DisplayMode, string> = {
+    internal: t("Built-in screen"),
+    external: t("External screen"),
+    extend: t("Both screens"),
+    clone: t("Same on both screens"),
+  };
   const items: Item[] = [
+    ...(quick?.display
+      ? [{
+          id: "display",
+          label: displayLabel[quick.display],
+          run: () =>
+            api.switchDisplay().then(
+              (display) => {
+                setQuick((q) => q && { ...q, display });
+                toast(t("Picture on: {screen}", { screen: displayLabel[display] }));
+              },
+              (e) => toast(errorText(e), "warn"),
+            ),
+        }]
+      : []),
     ...(game ? [{ id: "close", label: game.kind === "app" ? t("Close app") : t("Close game"), danger: true, confirm: true, run: () => closeRunning(game.id) }] : []),
     ...(install ? [{ id: "install", label: installLabel(install), run: () => useStore.setState({ detailsId: install.id }) }] : []),
     { id: "search", label: t("Search"), run: () => useStore.setState({ overlay: "search" }) },
@@ -292,7 +299,6 @@ export function QuickMenu() {
             )}
           </div>
           <div className="cc-status">
-            {quick?.wifi && <WifiStatus wifi={quick.wifi} />}
             {power?.hasBattery && (
               <span className="cc-chip">
                 <Battery power={power} />

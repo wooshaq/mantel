@@ -570,4 +570,11 @@ export const es: Catalog = {
   "Turn HDR off": "Desactivar HDR",
   "Turn HDR on": "Activar HDR",
   "Minimizing, closing or Esc pressed twice hides Mantel next to the clock; the icon brings it back": "Minimizar, cerrar o pulsar Esc dos veces oculta Mantel junto al reloj; el icono lo trae de vuelta",
+  "Built-in screen": "Pantalla integrada",
+  "External screen": "Pantalla externa",
+  "Both screens": "Ambas pantallas",
+  "Same on both screens": "Lo mismo en ambas pantallas",
+  "Picture on: {screen}": "Imagen en: {screen}",
+  "No external screen is connected": "No hay ninguna pantalla externa conectada",
+  "Switching screens works on Windows only": "Cambiar de pantalla solo funciona en Windows",
 };
