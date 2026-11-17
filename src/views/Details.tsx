@@ -239,7 +239,7 @@ function actionsFor(game: Game, running: boolean, install: InstallProgress | und
   if (game.installed && isGame(game)) {
     list.push({
       id: "hdr",
-      label: game.hdr ? t("HDR on") : t("HDR"),
+      label: game.rtxHdr ? t("RTX HDR on") : game.hdr ? t("HDR on") : t("HDR"),
       icon: HDR,
       run: () => toggleHdr(game),
     });

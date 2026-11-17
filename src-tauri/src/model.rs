@@ -167,6 +167,9 @@ pub struct Game {
     /// The player wants HDR switched on while this game runs.
     #[serde(default)]
     pub hdr: bool,
+    /// And RTX HDR on top, from the NVIDIA driver.
+    #[serde(default)]
+    pub rtx_hdr: bool,
     /// How long it takes, from the HowLongToBeat page the player linked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hltb: Option<crate::hltb::Hltb>,
@@ -210,6 +213,7 @@ impl Game {
             color: None,
             site: None,
             hdr: false,
+            rtx_hdr: false,
             hltb: None,
         }
     }

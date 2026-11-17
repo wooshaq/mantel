@@ -5,6 +5,7 @@ mod fse;
 mod gamepass;
 mod hltb;
 mod hdr;
+mod rtx_hdr;
 mod icons;
 mod install;
 mod steam_install;
@@ -494,6 +495,7 @@ fn set_flag(state: State<'_, AppState>, id: String, flag: String, value: bool) -
         "favorite" => meta.favorite = value,
         "hidden" => meta.hidden = value,
         "hdr" => meta.hdr = value,
+        "rtxHdr" => meta.rtx_hdr = value,
         other => return Err(format!("unknown flag {other}")),
     }
     state.save_user(&user);
@@ -862,7 +864,10 @@ fn open_url(url: String) -> Result<(), String> {
 #[tauri::command]
 async fn launch_game(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
     let mut game = find_game(&state, &id).ok_or("Game not found — refresh the library")?;
-    game.hdr = state.user.lock().unwrap().meta.get(&id).is_some_and(|m| m.hdr);
+    if let Some(m) = state.user.lock().unwrap().meta.get(&id) {
+        game.hdr = m.hdr;
+        game.rtx_hdr = m.rtx_hdr;
+    }
     tauri::async_runtime::spawn_blocking(move || launcher::launch(&app, &game)).await.map_err(|e| e.to_string())?
 }
 
@@ -1188,6 +1193,9 @@ pub fn run() {
             launcher::spawn_tracker(app.handle().clone());
             launcher::watch_front(app.handle());
             tray::init(app.handle());
+            // RTX HDR a crash or power cut left set in the driver's profiles goes back off.
+            let dir = app.state::<AppState>().dir().to_path_buf();
+            std::thread::spawn(move || rtx_hdr::init(&dir));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

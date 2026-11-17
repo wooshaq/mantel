@@ -10,7 +10,7 @@ import { AchievementsStat, HltbStat, InstallStat, Stat } from "../components/Sta
 import { t } from "../i18n";
 import { Layer, useInput } from "../input";
 import { ease, spring, useRem, useSettled } from "../motion";
-import { askCancel, closeRunning, gamePassGames, isCatalog, isGame, launch, rescan, setFocus, setSelected, sourceLabel, toggleFavorite, toggleHdr, useStore } from "../store";
+import { askCancel, closeRunning, gamePassGames, isCatalog, isGame, launch, rescan, setFocus, setSelected, sourceLabel, toggleFavorite, toggleHdr, nextHdrLabel, useStore } from "../store";
 import type { Game } from "../types";
 import { hours, installLabel, lastPlayed, size } from "../util";
 
@@ -84,7 +84,7 @@ function Hero({ game, running, zone, btn, armed, onPress }: { game: Game; runnin
           <button
             key={b}
             className={`btn ${b === "play" || b === "progress" ? "btn-play" : b === "quit" && (armed || closing) ? "btn-pill" : "btn-round"} ${b === "progress" ? "has-progress" : ""} ${(b === "cancel" && install?.state === "canceling") || (b === "quit" && closing) ? "is-busy" : ""} ${zone === "hub" && n === btn ? "is-focused" : ""} ${(b === "fav" && game.favorite) || (b === "hdr" && game.hdr) ? "is-on" : ""} ${b === "quit" && armed ? "is-armed" : ""}`}
-            aria-label={b === "quit" ? t("Close game") : b === "ach" ? t("Achievements") : b === "hdr" ? (game.hdr ? t("HDR on") : t("HDR")) : undefined}
+            aria-label={b === "quit" ? t("Close game") : b === "ach" ? t("Achievements") : b === "hdr" ? (game.rtxHdr ? t("RTX HDR on") : game.hdr ? t("HDR on") : t("HDR")) : undefined}
             style={b === "progress" ? ({ "--progress": (install?.percent ?? 100) / 100 } as React.CSSProperties) : undefined}
             onClick={() => onPress(b)}
           >
@@ -108,7 +108,7 @@ function Hero({ game, running, zone, btn, armed, onPress }: { game: Game; runnin
             ) : b === "ach" ? (
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{TROPHY}</svg>
             ) : b === "hdr" ? (
-              <span className="hdr">HDR</span>
+              <span className="hdr">{game.rtxHdr ? "RTX" : "HDR"}</span>
             ) : (
               <svg viewBox="0 0 24 24" className="star"><path d="M12 3.5l2.5 5.4 5.9.6-4.4 4 1.3 5.8L12 16.4l-5.3 2.9L8 13.5l-4.4-4 5.9-.6z" /></svg>
             )}
@@ -290,7 +290,7 @@ export function Home({ active }: { active: boolean }) {
               ? [["y", "Details"], ["menu", "Control center"]]
               : [["a", armed ? "Confirm" : "Close game"], ["y", "Details"], ["menu", "Control center"]]
           : zone === "hub" && (buttons[btn] === "ach" || buttons[btn] === "hdr")
-            ? [["a", buttons[btn] === "ach" ? "Achievements" : game.hdr ? "Turn HDR off" : "Turn HDR on"], ["y", "Details"], ["menu", "Control center"]]
+            ? [["a", buttons[btn] === "ach" ? "Achievements" : nextHdrLabel(game)], ["y", "Details"], ["menu", "Control center"]]
           : [["a", isRunning ? "Resume" : "Play"], ["y", "Details"], ["x", game.favorite ? "Unfavorite" : "Favorite"], ["view", "Search"], ["menu", "Control center"]],
     Layer.view,
     active,

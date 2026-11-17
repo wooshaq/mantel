@@ -58,6 +58,7 @@ struct Target {
 static PENDING: Mutex<Option<Pending>> = Mutex::new(None);
 
 /// Screens switched to HDR for a game, switched back when it ends.
+static RTX_HDR: LazyLock<Mutex<HashMap<String, Vec<crate::rtx_hdr::Change>>>> = LazyLock::new(Default::default);
 static HDR: LazyLock<Mutex<HashMap<String, Vec<crate::hdr::Switched>>>> = LazyLock::new(Default::default);
 
 /// Steam games started in Big Picture, which Mantel closes again after them.
@@ -153,10 +154,24 @@ pub fn launch(app: &AppHandle, game: &Game) -> Result<(), String> {
     Ok(())
 }
 
-/// What a game asks for before it starts: HDR on, Steam in Big Picture.
+/// What a game asks for before it starts: HDR on (RTX HDR too), Steam in Big Picture.
 fn prepare(app: &AppHandle, game: &Game) {
     let settings = app.state::<AppState>().user.lock().unwrap().settings.clone();
-    if game.hdr && !game.is_app() {
+    if game.rtx_hdr && !game.is_app() {
+        let exes = crate::rtx_hdr::exes(game.install_dir.as_deref().map(std::path::Path::new), &game.exe_names);
+        match crate::rtx_hdr::enable(&game.id, &exes) {
+            Ok(changes) => {
+                crate::log::info(&format!("rtx hdr on for {} ({} programs)", game.id, exes.len()));
+                RTX_HDR.lock().unwrap().insert(game.id.clone(), changes);
+            }
+            Err(e) => {
+                crate::log::warn(&format!("rtx hdr for {}: {e}", game.id));
+                let _ = app.emit("hdr-failed", e);
+            }
+        }
+    }
+    // RTX HDR draws into an HDR screen, so the screen goes to HDR with it.
+    if (game.hdr || game.rtx_hdr) && !game.is_app() {
         match crate::hdr::enable(settings.hdr_method) {
             Ok(switched) => {
                 crate::log::info(&format!("hdr on for {} ({:?}, {} screens)", game.id, settings.hdr_method, switched.len()));
@@ -183,6 +198,10 @@ fn prepare(app: &AppHandle, game: &Game) {
 
 /// Undoes what [`prepare`] did, once the game is over or never started.
 fn wind_down(id: &str) {
+    if let Some(changes) = RTX_HDR.lock().unwrap().remove(id) {
+        crate::rtx_hdr::restore(id, &changes);
+        crate::log::info(&format!("rtx hdr back off after {id}"));
+    }
     if let Some(switched) = HDR.lock().unwrap().remove(id) {
         crate::hdr::restore(&switched);
         crate::log::info(&format!("hdr back off after {id}"));

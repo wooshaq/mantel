@@ -48,7 +48,9 @@ TV PC.
   much of the story is left.
 - **HDR for the games that want it.** A game's page turns HDR on for that game: Mantel
   switches it on before the game starts and back off when it ends, through Windows or the
-  NVIDIA driver (Settings → System).
+  NVIDIA driver (Settings → System). With NVIDIA, the same button also offers **RTX HDR**:
+  the driver turns the game's SDR picture into HDR. Mantel sets it in the driver's profile for
+  that game only while it runs, and puts the profile back afterwards, after a crash too.
 - **Steam in Big Picture.** Optionally, Steam games start with Steam in Big Picture, which
   closes again after the game.
 - **Tray icon.** Optionally, minimizing or closing hides Mantel in the notification area.

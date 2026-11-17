@@ -56,7 +56,7 @@ export interface Api {
   setHltb(id: string, input: string): Promise<Hltb | null>;
   /** Reads again HowLongToBeat times a couple of weeks old; whether any changed. */
   refreshHltb(): Promise<boolean>;
-  setFlag(id: string, flag: "favorite" | "hidden" | "hdr", value: boolean): Promise<void>;
+  setFlag(id: string, flag: "favorite" | "hidden" | "hdr" | "rtxHdr", value: boolean): Promise<void>;
   getSettings(): Promise<Settings>;
   saveSettings(settings: Settings): Promise<void>;
   addCustomGame(path: string, name?: string, target?: string): Promise<Game[]>;

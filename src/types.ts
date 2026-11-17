@@ -63,6 +63,8 @@ export interface Game {
   site?: string | null;
   /** HDR switched on while the game runs. */
   hdr?: boolean;
+  /** RTX HDR on top, from the NVIDIA driver. */
+  rtxHdr?: boolean;
   /** How long it takes, from the HowLongToBeat page linked to it. */
   hltb?: Hltb | null;
 }

@@ -218,7 +218,9 @@ export function Settings({ active }: { active: boolean }) {
       kind: "button",
       id: "hdr",
       label: t("HDR for games"),
-      sub: t("Turn HDR on for a game on its page; it goes back off when the game ends"),
+      sub: settings.hdrMethod === "nvidia"
+        ? t("With NVIDIA, a game's HDR button also offers RTX HDR: the driver turns the game's SDR picture into HDR")
+        : t("Turn HDR on for a game on its page; it goes back off when the game ends"),
       value: settings.hdrMethod === "nvidia" ? "NVIDIA" : "Windows",
       run: () => patch({ hdrMethod: settings.hdrMethod === "nvidia" ? "windows" : "nvidia" }),
     },

@@ -79,6 +79,8 @@ pub struct GameMeta {
     pub art: Art,
     /// HDR on while the game runs.
     pub hdr: bool,
+    /// RTX HDR on while the game runs: the NVIDIA driver turns its SDR picture into HDR.
+    pub rtx_hdr: bool,
     /// The game's page on HowLongToBeat, linked by the player.
     pub hltb: Option<u32>,
 }
@@ -198,6 +200,10 @@ impl AppState {
     }
 
     /// Copies of image files the player picked as art, so they outlive the originals.
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
     pub fn art_dir(&self) -> PathBuf {
         self.dir.join("art")
     }

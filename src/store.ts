@@ -477,11 +477,26 @@ export async function refreshAchievements() {
   if (await api.refreshSteamAchievements().catch(() => false)) set({ games: await api.getLibrary(false) });
 }
 
+/** The next HDR choice for a game: off, HDR, and with an NVIDIA card, RTX HDR. */
 export async function toggleHdr(game: Game) {
-  const value = !game.hdr;
-  patchGame(game.id, { hdr: value });
-  await api.setFlag(game.id, "hdr", value);
-  toast(value ? t("HDR turns on while {name} runs", { name: game.name }) : t("HDR stays as it is for {name}", { name: game.name }));
+  const nvidia = get().settings?.hdrMethod === "nvidia";
+  const [hdr, rtxHdr] = game.rtxHdr ? [false, false] : game.hdr ? [nvidia, nvidia] : [true, false];
+  patchGame(game.id, { hdr, rtxHdr });
+  await api.setFlag(game.id, "hdr", hdr);
+  await api.setFlag(game.id, "rtxHdr", rtxHdr);
+  toast(
+    rtxHdr
+      ? t("RTX HDR turns on while {name} runs", { name: game.name })
+      : hdr
+        ? t("HDR turns on while {name} runs", { name: game.name })
+        : t("HDR stays as it is for {name}", { name: game.name }),
+  );
+}
+
+/** What the HDR button says it does next. */
+export function nextHdrLabel(game: Game): string {
+  const nvidia = get().settings?.hdrMethod === "nvidia";
+  return game.rtxHdr || (game.hdr && !nvidia) ? "Turn HDR off" : game.hdr ? "Turn RTX HDR on" : "Turn HDR on";
 }
 
 /** The notification-area icon follows the setting, its menu the interface's language. */

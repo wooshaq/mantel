@@ -36,6 +36,9 @@ pub fn enable(method: Method) -> Result<Vec<Switched>, String> {
     Ok(switched)
 }
 
+#[cfg(windows)]
+pub use imp::nvapi_query;
+
 /// Switches back what [`enable`] changed.
 pub fn restore(switched: &[Switched]) {
     for s in switched {
@@ -203,7 +206,7 @@ mod imp {
         }
     }
 
-    type QueryInterface = unsafe extern "C" fn(u32) -> *const c_void;
+    pub type QueryInterface = unsafe extern "C" fn(u32) -> *const c_void;
     type Initialize = unsafe extern "C" fn() -> i32;
     type DisplayIdByName = unsafe extern "C" fn(*const u8, *mut u32) -> i32;
     type HdrColorControl = unsafe extern "C" fn(u32, *mut HdrColorData) -> i32;
@@ -213,7 +216,8 @@ mod imp {
         control: HdrColorControl,
     }
 
-    fn nvapi() -> Result<Nvapi, String> {
+    /// nvapi_QueryInterface, with the driver initialized: every NVAPI function is found through it.
+    pub fn nvapi_query() -> Result<QueryInterface, String> {
         use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32};
         let missing = || "The NVIDIA driver isn't installed here: switch HDR to Windows in Settings".to_string();
         unsafe {
@@ -225,14 +229,26 @@ mod imp {
             }
             let query = GetProcAddress(lib, c"nvapi_QueryInterface".as_ptr() as *const u8).ok_or_else(missing)?;
             let query: QueryInterface = std::mem::transmute(query);
+            let init = query(NVAPI_INITIALIZE);
+            if init.is_null() {
+                return Err(missing());
+            }
+            let init: Initialize = std::mem::transmute(init);
+            if init() != 0 {
+                return Err("The NVIDIA driver didn't answer".into());
+            }
+            Ok(query)
+        }
+    }
+
+    fn nvapi() -> Result<Nvapi, String> {
+        let query = nvapi_query()?;
+        let missing = || "This NVIDIA driver can't switch HDR: switch HDR to Windows in Settings".to_string();
+        unsafe {
             let get = |id: u32| {
                 let f = query(id);
                 (!f.is_null()).then_some(f)
             };
-            let init: Initialize = std::mem::transmute(get(NVAPI_INITIALIZE).ok_or_else(missing)?);
-            if init() != 0 {
-                return Err("The NVIDIA driver didn't answer".into());
-            }
             Ok(Nvapi {
                 display_id: std::mem::transmute(get(NVAPI_GET_DISPLAY_ID_BY_NAME).ok_or_else(missing)?),
                 control: std::mem::transmute(get(NVAPI_HDR_COLOR_CONTROL).ok_or_else(missing)?),
