@@ -182,6 +182,7 @@ pub fn apply_meta(games: &mut [Game], user: &UserData, art: &HashMap<String, Res
         if let Some(m) = user.meta.get(&g.id) {
             g.favorite = m.favorite;
             g.hidden = m.hidden;
+            g.hdr = m.hdr;
             g.added_at = m.added_at;
             // Steam counts its own sessions, ours included; elsewhere only Mantel keeps time.
             g.playtime_minutes = g.playtime_minutes.max(m.tracked_minutes);

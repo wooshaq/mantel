@@ -1,6 +1,6 @@
 // Stand-in backend for developing the UI in a regular browser.
 import type { Api, GameEvent } from "./api";
-import type { Achievements, AppChoice, Art, Game, Quick, Running, Settings, Source } from "./types";
+import type { Achievements, AppChoice, Art, Game, Quick, Running, Settings, Source, SteamProfile } from "./types";
 
 const cdn = (id: number): Art => {
   const base = `https://cdn.cloudflare.steamstatic.com/steam/apps/${id}`;
@@ -214,7 +214,14 @@ let settings: Settings = {
   sounds: true,
   minimizeOnLaunch: true,
   trailers: true,
+  steamId: "",
+  bigPicture: false,
+  hdrMethod: "windows",
+  tray: false,
 };
+
+/** Sample profile: in the app this is the account Steam signed in with on the PC. */
+let steamProfile: SteamProfile | null = { steamId: "76561190000000000", name: "Player", public: true, detected: true };
 
 // Real Steam trailers (DASH), so the player can be tried in the browser too.
 const VIDEO = "https://video.akamai.steamstatic.com/store_trailers";
@@ -295,6 +302,21 @@ export const mockApi: Api = {
       secret: i >= unlocked && i % 7 === 3,
     }));
   },
+  async refreshSteamAchievements() {
+    return false;
+  },
+  async steamProfile() {
+    return steamProfile && { ...steamProfile };
+  },
+  async setSteamId(input) {
+    await wait(400);
+    const id = input.trim().match(/(\d{17})/)?.[1];
+    if (input.trim() && !id) throw "That doesn't look like a Steam profile";
+    steamProfile = { steamId: id ?? "76561190000000000", name: "Player", public: true, detected: !id };
+    settings = { ...settings, steamId: id ?? "" };
+    return { ...steamProfile };
+  },
+  async setTray() {},
   async setFlag(id, flag, value) {
     games = games.map((g) => (g.id === id ? { ...g, [flag]: value } : g));
   },

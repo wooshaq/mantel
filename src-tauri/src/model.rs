@@ -164,6 +164,9 @@ pub struct Game {
     /// The site an app opens, for sites added as apps.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub site: Option<String>,
+    /// The player wants HDR switched on while this game runs.
+    #[serde(default)]
+    pub hdr: bool,
 }
 
 fn installed_default() -> bool {
@@ -203,6 +206,7 @@ impl Game {
             kind: None,
             color: None,
             site: None,
+            hdr: false,
         }
     }
 }

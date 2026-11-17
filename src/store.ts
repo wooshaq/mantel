@@ -437,6 +437,7 @@ export async function rescan(quiet = false) {
     if (await api.measureSizes()) set({ games: await api.getLibrary(false) });
     // Games from other stores that matched a Steam page get its art too, Steam turned on or not.
     if (get().games.some((g) => g.steamAppId) && (await api.resolveSteamFacts().catch(() => false))) set({ games: await api.getLibrary(false) });
+    void refreshAchievements();
     set({ accounts: await api.accountsStatus() });
     await loadCatalog();
     void loadSteamStore();
@@ -467,6 +468,24 @@ export async function toggleFavorite(game: Game) {
   patchGame(game.id, { favorite: value });
   await api.setFlag(game.id, "favorite", value);
   toast(value ? t("Added {name} to favorites", { name: game.name }) : t("Removed {name} from favorites", { name: game.name }));
+}
+
+/** Achievement progress from the public Steam profile, for players not signed in to Steam. */
+export async function refreshAchievements() {
+  if (await api.refreshSteamAchievements().catch(() => false)) set({ games: await api.getLibrary(false) });
+}
+
+export async function toggleHdr(game: Game) {
+  const value = !game.hdr;
+  patchGame(game.id, { hdr: value });
+  await api.setFlag(game.id, "hdr", value);
+  toast(value ? t("HDR turns on while {name} runs", { name: game.name }) : t("HDR stays as it is for {name}", { name: game.name }));
+}
+
+/** The notification-area icon follows the setting, its menu the interface's language. */
+export function syncTray() {
+  const on = get().settings?.tray ?? false;
+  api.setTray(on, t("Show Mantel"), t("Quit Mantel")).catch((e) => toast(errorText(e), "warn"));
 }
 
 export async function setHidden(game: Game, value: boolean) {
@@ -575,8 +594,11 @@ export function wireEvents() {
       // Mantel says so itself.
       if (name && game && seconds > 0 && isGame(game)) toast(min > 0 ? t("{name}: +{min} min played", { name, min }) : t("{name} closed", { name }), "good");
       set({ games: await api.getLibrary(false) });
+      // Steam takes a moment to publish what was unlocked in the session.
+      if (game?.source === "steam") setTimeout(() => void refreshAchievements(), 30_000);
     }),
     api.on("front-app", (payload) => void (appInFront = payload === true)),
+    api.on("hdr-failed", (payload) => toast(t("HDR didn't turn on: {error}", { error: errorText(payload) }), "warn")),
     api.on("install-progress", (payload) => void installProgress(payload as InstallProgress)),
     api.on("game-uninstalled", (payload) => void gameUninstalled(payload as string)),
     api.on("game-launch-timeout", (id) => {

@@ -3,9 +3,11 @@ mod apps;
 mod art;
 mod fse;
 mod gamepass;
+mod hdr;
 mod icons;
 mod install;
 mod steam_install;
+mod steam_public;
 mod steam_store;
 mod xbox_store;
 mod launcher;
@@ -16,6 +18,7 @@ mod model;
 mod pick;
 mod store;
 mod system;
+mod tray;
 mod uninstall;
 mod vdf;
 
@@ -37,6 +40,10 @@ fn snapshot(state: &AppState) -> Vec<Game> {
     library::apply_meta(&mut games, &user, &cache.art);
     for g in games.iter_mut() {
         cache.steam_facts.apply(g);
+    }
+    // Without a Steam sign-in, progress comes from the public profile.
+    for g in games.iter_mut().filter(|g| g.source == "steam" && g.achievements.is_none()) {
+        g.achievements = g.source_id.parse().ok().and_then(|id: u32| cache.steam_public.get(&id)).and_then(|p| p.achievements.clone());
     }
     for g in games.iter_mut().filter(|g| g.size_bytes.is_none()) {
         g.size_bytes = g.install_dir.as_ref().and_then(|d| cache.sizes.get(d)).and_then(|s| s.bytes);
@@ -496,10 +503,34 @@ async fn get_details(state: State<'_, AppState>, id: String, language: Option<St
 /// The game's achievements with the player's progress, from the store account it came from.
 /// Xbox titles that report no count get it from the list.
 #[tauri::command]
-async fn get_achievements(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<Vec<model::Achievement>, String> {
+async fn get_achievements(app: AppHandle, state: State<'_, AppState>, id: String, language: Option<String>) -> Result<Vec<model::Achievement>, String> {
     let game = snapshot(&state).into_iter().find(|g| g.id == id).ok_or("Game not found")?;
     match game.source.as_str() {
-        "steam" => accounts::steam_achievement_list(&app, game.source_id.parse().map_err(|_| "Unknown Steam app")?).await,
+        "steam" => {
+            let appid: u32 = game.source_id.parse().map_err(|_| "Unknown Steam app")?;
+            let signed_in = state.user.lock().unwrap().accounts.steam_signed_in;
+            // The public profile knows when each was unlocked; the sign-in is the way in when
+            // the profile is private.
+            let public = match steam_id(&state) {
+                Some((sid, _)) => Some(steam_public::list(sid, appid, language.as_deref().unwrap_or("english")).await),
+                None => None,
+            };
+            match public {
+                Some(Ok((list, progress))) => {
+                    let mut cache = state.cache.lock().unwrap();
+                    let p = cache.steam_public.entry(appid).or_default();
+                    p.at = now();
+                    p.total = progress.total;
+                    p.total_at = now();
+                    p.achievements = (progress.total > 0).then_some(progress);
+                    state.save_cache(&cache);
+                    Ok(list)
+                }
+                Some(Err(_)) | None if signed_in => accounts::steam_achievement_list(&app, appid).await,
+                Some(Err(e)) => Err(e),
+                None => Err("Mantel doesn't know your Steam profile yet: add it in Settings → Accounts".into()),
+            }
+        }
         "xbox" => {
             let title = state.cache.lock().unwrap().owned_xbox.iter().find(|t| t.pfn.eq_ignore_ascii_case(&game.source_id)).map(|t| t.title_id.clone());
             let title = title.filter(|t| !t.is_empty()).ok_or("Xbox Live has no achievements for this game")?;
@@ -531,6 +562,7 @@ fn set_flag(state: State<'_, AppState>, id: String, flag: String, value: bool) -
     match flag.as_str() {
         "favorite" => meta.favorite = value,
         "hidden" => meta.hidden = value,
+        "hdr" => meta.hdr = value,
         other => return Err(format!("unknown flag {other}")),
     }
     state.save_user(&user);
@@ -958,10 +990,78 @@ fn open_url(url: String) -> Result<(), String> {
     launcher::open_external(&url)
 }
 
+/// Runs off the main thread: HDR and Big Picture take a moment before the game starts.
 #[tauri::command]
-fn launch_game(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
-    let game = find_game(&state, &id).ok_or("Game not found — refresh the library")?;
-    launcher::launch(&app, &game)
+async fn launch_game(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let mut game = find_game(&state, &id).ok_or("Game not found — refresh the library")?;
+    game.hdr = state.user.lock().unwrap().meta.get(&id).is_some_and(|m| m.hdr);
+    tauri::async_runtime::spawn_blocking(move || launcher::launch(&app, &game)).await.map_err(|e| e.to_string())?
+}
+
+/// The SteamID achievements are read for: the one in the settings, or else the account Steam
+/// last signed in with here (`true`).
+fn steam_id(state: &AppState) -> Option<(u64, bool)> {
+    let saved = state.user.lock().unwrap().settings.steam_id.trim().parse::<u64>().ok();
+    saved.map(|id| (id, false)).or_else(|| library::steam_user().map(|(id, _)| (id, true)))
+}
+
+/// Achievement progress for played Steam games from the public profile, for players not
+/// signed in. Asks only about games whose last answer is a few hours old. Whether any changed.
+#[tauri::command]
+async fn refresh_steam_achievements(state: State<'_, AppState>) -> Result<bool, String> {
+    if state.user.lock().unwrap().accounts.steam_signed_in {
+        return Ok(false);
+    }
+    let Some((sid, _)) = steam_id(&state) else { return Ok(false) };
+    // Played games only: the rest have nothing unlocked. Playtime Mantel measured counts too.
+    let appids: Vec<u32> = snapshot(&state)
+        .iter()
+        .filter(|g| g.source == "steam" && (g.playtime_minutes > 0 || g.last_played.is_some()))
+        .filter_map(|g| g.source_id.parse().ok())
+        .collect();
+    let known = state.cache.lock().unwrap().steam_public.clone();
+    let before: Vec<Option<model::Achievements>> = appids.iter().map(|id| known.get(id).and_then(|p| p.achievements.clone())).collect();
+    let found = steam_public::refresh(sid, appids.clone(), &known).await;
+    if found.is_empty() {
+        return Ok(false);
+    }
+    let mut cache = state.cache.lock().unwrap();
+    cache.steam_public.extend(found);
+    state.save_cache(&cache);
+    let after: Vec<Option<model::Achievements>> = appids.iter().map(|id| cache.steam_public.get(id).and_then(|p| p.achievements.clone())).collect();
+    Ok(before != after)
+}
+
+/// The Steam profile achievements come from, with its name and whether it's public.
+#[tauri::command]
+async fn steam_profile(state: State<'_, AppState>) -> Result<Option<steam_public::Profile>, String> {
+    let Some((sid, detected)) = steam_id(&state) else { return Ok(None) };
+    Ok(Some(steam_public::profile(sid, detected).await))
+}
+
+/// Sets the Steam profile from an id or a profile link; empty goes back to the one Steam
+/// on this PC uses.
+#[tauri::command]
+async fn set_steam_id(state: State<'_, AppState>, input: String) -> Result<Option<steam_public::Profile>, String> {
+    let id = if input.trim().is_empty() { String::new() } else { steam_public::parse_id(&input).await?.to_string() };
+    {
+        let mut user = state.user.lock().unwrap();
+        user.settings.steam_id = id;
+        state.save_user(&user);
+    }
+    {
+        // Progress from another profile isn't this one's.
+        let mut cache = state.cache.lock().unwrap();
+        cache.steam_public.clear();
+        state.save_cache(&cache);
+    }
+    steam_profile(state).await
+}
+
+/// The notification-area icon, on or off, with its menu in the interface's language.
+#[tauri::command]
+fn set_tray(app: AppHandle, on: bool, show: String, quit: String) -> Result<(), String> {
+    tray::set(&app, on, &show, &quit)
 }
 
 #[tauri::command]
@@ -1063,6 +1163,7 @@ pub fn run() {
             allow_assets(app.handle(), &customs);
             launcher::spawn_tracker(app.handle().clone());
             launcher::watch_front(app.handle());
+            tray::init(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1071,6 +1172,10 @@ pub fn run() {
             measure_sizes,
             get_details,
             get_achievements,
+            refresh_steam_achievements,
+            steam_profile,
+            set_steam_id,
+            set_tray,
             set_flag,
             get_settings,
             save_settings,

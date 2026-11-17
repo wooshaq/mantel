@@ -8,9 +8,9 @@ import { AccountFlow, steamCopy, xboxCopy } from "../components/AccountFlow";
 import { useScrollFocus } from "../hooks";
 import { Layer, useInput } from "../input";
 import { errorText, LANGUAGES, t } from "../i18n";
-import { loadCatalog, openSetup, rescan, saveSettings, setHidden, toast, useStore } from "../store";
+import { loadCatalog, openSetup, refreshAchievements, rescan, saveSettings, setHidden, toast, useStore } from "../store";
 import { sound } from "../sound";
-import type { AccountsStatus, Settings as S, Source } from "../types";
+import type { AccountsStatus, Settings as S, Source, SteamProfile } from "../types";
 
 type Row =
   | { kind: "group"; label: string }
@@ -18,7 +18,7 @@ type Row =
   | { kind: "button"; id: string; label: string; sub?: string; value?: string; icon?: Icon; soon?: boolean; run: () => void };
 
 type Icon = Source | "ea" | "battlenet" | "art";
-type Flow = "steam" | "xbox" | "sgdb" | "add" | "home" | null;
+type Flow = "steam" | "steamid" | "xbox" | "sgdb" | "add" | "home" | null;
 type Category = "library" | "accounts" | "interface" | "system";
 
 const CATEGORIES: [Category, string, React.ReactNode][] = [
@@ -75,11 +75,13 @@ export function Settings({ active }: { active: boolean }) {
   const [autostart, setAutostart] = useState(false);
   const [flow, setFlow] = useState<Flow>(null);
   const [accounts, setAccounts] = useState<AccountsStatus | null>(null);
+  const [profile, setProfile] = useState<SteamProfile | null>(null);
   const list = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api.getAutostart().then(setAutostart).catch(() => {});
     api.accountsStatus().then(setAccounts).catch(() => {});
+    api.steamProfile().then(setProfile).catch(() => {});
   }, []);
 
   const signInAsk = useStore((s) => s.signInAsk);
@@ -157,6 +159,19 @@ export function Settings({ active }: { active: boolean }) {
         : t("Sign in to see every game you own and playtime from all your devices"),
       value: steam?.connected ? t("Connected") : t("Sign in"),
       run: () => setFlow("steam"),
+    },
+    {
+      kind: "button",
+      id: "acc-steam-profile",
+      icon: "steam",
+      label: t("Steam achievements"),
+      sub: profile
+        ? profile.public
+          ? t("From the profile of {name}, with when you unlocked each, no sign-in needed", { name: profile.name || profile.steamId })
+          : t("The profile of {name} is private: make its game details public on Steam to see achievements", { name: profile.name || profile.steamId })
+        : t("From your public Steam profile, with when you unlocked each, no sign-in needed"),
+      value: profile ? (profile.detected ? t("From this PC") : t("Your profile")) : t("Add"),
+      run: () => setFlow("steamid"),
     },
     {
       kind: "button",
@@ -240,6 +255,30 @@ export function Settings({ active }: { active: boolean }) {
       sub: t("Mantel steps aside during a game and comes back when it closes"),
       value: settings.minimizeOnLaunch,
       set: (v) => patch({ minimizeOnLaunch: v }),
+    },
+    {
+      kind: "toggle",
+      id: "tray",
+      label: t("Icon in the notification area"),
+      sub: t("Minimizing or closing hides Mantel next to the clock; the icon brings it back"),
+      value: settings.tray,
+      set: (v) => patch({ tray: v }),
+    },
+    {
+      kind: "toggle",
+      id: "bigpicture",
+      label: t("Steam games in Big Picture"),
+      sub: t("Steam opens in Big Picture before the game and closes it after"),
+      value: settings.bigPicture,
+      set: (v) => patch({ bigPicture: v }),
+    },
+    {
+      kind: "button",
+      id: "hdr",
+      label: t("HDR for games"),
+      sub: t("Turn HDR on for a game on its page; it goes back off when the game ends"),
+      value: settings.hdrMethod === "nvidia" ? "NVIDIA" : "Windows",
+      run: () => patch({ hdrMethod: settings.hdrMethod === "nvidia" ? "windows" : "nvidia" }),
     },
     {
       kind: "button",
@@ -342,6 +381,34 @@ export function Settings({ active }: { active: boolean }) {
         </div>
         {flow === "add" && <AddGame onClose={() => setFlow(null)} />}
         {(flow === "steam" || flow === "xbox") && <AccountFlow copy={(flow === "steam" ? steamCopy : xboxCopy)(accounts)} onChange={setAccounts} onClose={() => setFlow(null)} />}
+        {flow === "steamid" && (
+          <KeyFlow
+            kind="profile"
+            service="Steam"
+            title={t("Achievements from your profile")}
+            intro={t("Mantel reads achievements from your public Steam profile. Without a link it uses the account Steam signed in with on this PC.")}
+            howTo={[t("Open your profile on Steam and copy its address"), t("Its game details must be public: Edit Profile → Privacy Settings"), t("Come back here and paste it")]}
+            url="https://steamcommunity.com/my/profile"
+            site="steamcommunity.com"
+            connected={!!profile && !profile.detected}
+            status={profile ? `${profile.name || profile.steamId} · ${profile.public ? t("public") : t("private")}` : undefined}
+            onSubmit={async (link) => {
+              const p = await api.setSteamId(link);
+              setProfile(p);
+              await patch({ steamId: p?.detected ? "" : p?.steamId ?? "" });
+              toast(t("Achievements now come from {name}", { name: p?.name || p?.steamId || "Steam" }), "good");
+              void refreshAchievements();
+            }}
+            disconnectLabel={t("Use the account on this PC")}
+            onDisconnect={async () => {
+              const p = await api.setSteamId("");
+              setProfile(p);
+              await patch({ steamId: "" });
+              void refreshAchievements();
+            }}
+            onClose={() => setFlow(null)}
+          />
+        )}
         {flow === "sgdb" && (
           <KeyFlow
             service="SteamGridDB"

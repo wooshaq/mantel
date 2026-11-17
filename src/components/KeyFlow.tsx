@@ -17,6 +17,27 @@ const ICONS: Record<Step, React.ReactNode> = {
   disconnect: <path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10" />,
 };
 
+/** What the flow asks for: an API key, or a link to a profile. */
+function wordsFor(kind: "key" | "profile", service: string, site: string) {
+  return kind === "key"
+    ? {
+        empty: t("The clipboard is empty. Copy the key first."),
+        opened: t("Opened {site} in the browser. Copy the key there, then come back.", { site }),
+        checking: t("Checking the key…"),
+        paste: t("Paste key from clipboard"),
+        type: t("Type the key"),
+        prompt: t("{service} key", { service }),
+      }
+    : {
+        empty: t("The clipboard is empty. Copy the profile link first."),
+        opened: t("Opened {site} in the browser. Copy your profile link there, then come back.", { site }),
+        checking: t("Checking the profile…"),
+        paste: t("Paste profile link from clipboard"),
+        type: t("Type the profile link or ID"),
+        prompt: t("Steam profile link or ID"),
+      };
+}
+
 /**
  * Connecting a service by API key, built for a gamepad: open the provider's page in the
  * browser, copy the key there, come back and paste. Typing stays as a fallback.
@@ -33,6 +54,8 @@ export function KeyFlow({
   onSubmit,
   onDisconnect,
   onClose,
+  kind = "key",
+  disconnectLabel,
 }: {
   service: string;
   title: string;
@@ -45,7 +68,11 @@ export function KeyFlow({
   onSubmit: (key: string) => Promise<void>;
   onDisconnect?: () => Promise<void>;
   onClose: () => void;
+  /** A key by default; "profile" asks for a profile link instead. */
+  kind?: "key" | "profile";
+  disconnectLabel?: string;
 }) {
+  const words = wordsFor(kind, service, site);
   const steps: Step[] = ["open", "paste", "type", ...(connected && onDisconnect ? (["disconnect"] as Step[]) : [])];
   const [index, setIndex] = useState(connected ? 1 : 0);
   const [busy, setBusy] = useState(false);
@@ -53,12 +80,12 @@ export function KeyFlow({
   const [typing, setTyping] = useState(false);
 
   const submit = async (key: string) => {
-    if (!key.trim()) return setError(t("The clipboard is empty. Copy the key first."));
+    if (!key.trim()) return setError(words.empty);
     setBusy(true);
     setError(null);
     try {
       await onSubmit(key.trim());
-      toast(t("{service} connected", { service }), "good");
+      if (kind === "key") toast(t("{service} connected", { service }), "good");
       onClose();
     } catch (e) {
       setError(errorText(e));
@@ -71,23 +98,23 @@ export function KeyFlow({
     if (busy) return;
     if (step === "open") {
       await api.openUrl(url).catch((e) => setError(errorText(e)));
-      toast(t("Opened {site} in the browser. Copy the key there, then come back.", { site }));
+      toast(words.opened);
     } else if (step === "paste") {
       submit(await api.readClipboard().catch(() => ""));
     } else if (step === "type") {
       setTyping(true);
     } else if (step === "disconnect" && onDisconnect) {
       await onDisconnect();
-      toast(t("{service} disconnected", { service }));
+      if (!disconnectLabel) toast(t("{service} disconnected", { service }));
       onClose();
     }
   };
 
   const label: Record<Step, string> = {
     open: t("Open {site}", { site }),
-    paste: busy ? t("Checking the key…") : t("Paste key from clipboard"),
-    type: t("Type the key"),
-    disconnect: t("Disconnect {service}", { service }),
+    paste: busy ? words.checking : words.paste,
+    type: words.type,
+    disconnect: disconnectLabel ?? t("Disconnect {service}", { service }),
   };
 
   useInput(
@@ -138,7 +165,7 @@ export function KeyFlow({
       </motion.div>
       {typing && (
         <TextPrompt
-          title={t("{service} key", { service })}
+          title={words.prompt}
           hint={t("Type or paste with Ctrl+V.")}
           initial=""
           onDone={(v) => {

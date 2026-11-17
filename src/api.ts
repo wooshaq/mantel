@@ -1,4 +1,4 @@
-import type { AccountsStatus, Achievement, AppChoice, ArtChoices, ArtKind, Details, Editions, Game, InstallProgress, Listing, Power, Quick, Running, Settings, StoreHit, StoreHome, StorePage, StoreShelf, Suggestion } from "./types";
+import type { AccountsStatus, Achievement, AppChoice, ArtChoices, ArtKind, Details, Editions, Game, InstallProgress, Listing, Power, Quick, Running, Settings, SteamProfile, StoreHit, StoreHome, StorePage, StoreShelf, Suggestion } from "./types";
 import { mockApi } from "./mock";
 import { steamLanguage } from "./i18n";
 
@@ -32,7 +32,15 @@ export interface Api {
   uninstallGame(id: string): Promise<void>;
   /** The game's achievements from the Steam or Xbox account it came from. */
   getAchievements(id: string): Promise<Achievement[]>;
-  setFlag(id: string, flag: "favorite" | "hidden", value: boolean): Promise<void>;
+  /** Progress of played Steam games from the public profile; whether any changed. */
+  refreshSteamAchievements(): Promise<boolean>;
+  /** The Steam profile achievements come from, or null when none is known. */
+  steamProfile(): Promise<SteamProfile | null>;
+  /** Takes a SteamID64 or a profile link; "" goes back to Steam's account on this PC. */
+  setSteamId(input: string): Promise<SteamProfile | null>;
+  /** The notification-area icon, with its menu labels. */
+  setTray(on: boolean, show: string, quit: string): Promise<void>;
+  setFlag(id: string, flag: "favorite" | "hidden" | "hdr", value: boolean): Promise<void>;
   getSettings(): Promise<Settings>;
   saveSettings(settings: Settings): Promise<void>;
   addCustomGame(path: string, name?: string, target?: string): Promise<Game[]>;
@@ -95,7 +103,7 @@ export interface Api {
   appVersion(): Promise<string>;
 }
 
-export type GameEvent = "game-started" | "game-stopped" | "game-launch-timeout" | "install-progress" | "game-uninstalled" | "front-app";
+export type GameEvent = "game-started" | "game-stopped" | "game-launch-timeout" | "install-progress" | "game-uninstalled" | "front-app" | "hdr-failed";
 
 export interface FullScreenMode {
   supported: boolean;
@@ -116,7 +124,11 @@ const tauriApi: Api = {
   installsUnderWay: () => call("installs_under_way"),
   installAccess: (id) => call("install_access", { id }),
   uninstallGame: (id) => call("uninstall_game", { id }),
-  getAchievements: (id) => call("get_achievements", { id }),
+  getAchievements: (id) => call("get_achievements", { id, language: steamLanguage() }),
+  refreshSteamAchievements: () => call("refresh_steam_achievements"),
+  steamProfile: () => call("steam_profile"),
+  setSteamId: (input) => call("set_steam_id", { input }),
+  setTray: (on, show, quit) => call("set_tray", { on, show, quit }),
   setFlag: (id, flag, value) => call("set_flag", { id, flag, value }),
   getSettings: () => call("get_settings"),
   saveSettings: (settings) => call("save_settings", { settings }),

@@ -61,6 +61,8 @@ export interface Game {
   color?: string | null;
   /** The site an app opens, for sites added as apps. */
   site?: string | null;
+  /** HDR switched on while the game runs. */
+  hdr?: boolean;
 }
 
 /** Something to add on the Apps tab: an app from the Start menu, or a site. */
@@ -175,6 +177,24 @@ export interface Settings {
   language: string;
   /** Show the Game Pass tab. */
   gamePass: boolean;
+  /** SteamID64 for achievements from the public profile; "" takes Steam's account on this PC. */
+  steamId: string;
+  /** Steam games start in Big Picture, closed again after the game. */
+  bigPicture: boolean;
+  /** How HDR is switched on for games that ask for it. */
+  hdrMethod: "windows" | "nvidia";
+  /** Icon in the notification area; minimizing or closing hides Mantel there. */
+  tray: boolean;
+}
+
+/** The Steam profile achievements are read from. */
+export interface SteamProfile {
+  steamId: string;
+  name: string;
+  /** False when the profile or its game details are private. */
+  public: boolean;
+  /** Found in Steam on this PC rather than typed in. */
+  detected: boolean;
 }
 
 /** What a bundle is made of: the "main" game, its "launcher", another "game", or an "addon". */

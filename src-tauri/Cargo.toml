@@ -14,7 +14,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
@@ -51,6 +51,8 @@ windows = { version = "0.62", features = [
   "Win32_UI_Shell",
 ] }
 windows-sys = { version = "0.60", features = [
+  # HDR on and off through Windows' display settings.
+  "Win32_Devices_Display",
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
   "Win32_NetworkManagement_WiFi",

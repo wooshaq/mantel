@@ -14,7 +14,7 @@ import { useScrollFocus } from "../hooks";
 import { errorText, locale, t } from "../i18n";
 import { Layer, useInput } from "../input";
 import { ease, spring } from "../motion";
-import { askCancel, checkAccess, closeRunning, gameById, installEdition, isCatalog, isStoreItem, launch, rescan, setHidden, sourceLabel, startInstall, toast, toggleFavorite, uninstall, useStore } from "../store";
+import { askCancel, checkAccess, closeRunning, gameById, installEdition, isGame, isCatalog, isStoreItem, launch, rescan, setHidden, sourceLabel, startInstall, toast, toggleFavorite, toggleHdr, uninstall, useStore } from "../store";
 import { TextPrompt } from "../components/TextPrompt";
 import { watchTrailer } from "../trailer";
 import type { Achievement, BundleItem, Details as Info, Editions, Game, InstallProgress, Video } from "../types";
@@ -177,6 +177,14 @@ function actionsFor(game: Game, running: boolean, install: InstallProgress | und
   }
   if (game.achievements) {
     list.push({ id: "achievements", label: t("Achievements"), icon: TROPHY, run: showAchievements });
+  }
+  if (game.installed && isGame(game)) {
+    list.push({
+      id: "hdr",
+      label: game.hdr ? t("HDR on") : t("HDR"),
+      icon: <><rect x="2.5" y="5" width="19" height="14" rx="2.5" fill={game.hdr ? "currentColor" : "none"} fillOpacity={game.hdr ? 0.18 : 0} /><path d="M6.5 9.5v5M9.5 9.5v5M6.5 12h3M12 9.5v5h1.4a2.5 2.5 0 0 0 0-5zM16.5 14.5v-5h1.7a1.5 1.5 0 0 1 0 3h-1.7M18.2 12.5l1.3 2" /></>,
+      run: () => toggleHdr(game),
+    });
   }
   list.push({
     id: "art",

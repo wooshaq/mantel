@@ -34,7 +34,15 @@ TV PC.
   app, which installs them, and uninstall in Windows Settings: Mantel never runs PowerShell.
 - **In your language.** English, French, German, Polish, Spanish and Russian.
 - **Achievements.** With an account connected, every Steam and Xbox game shows its
-  progress, and its page lists each achievement with rarity and gamerscore.
+  progress, and its page lists each achievement with rarity and gamerscore. Steam
+  achievements also come without signing in, from your public Steam profile, with the date
+  each one was unlocked (Settings → Accounts → Steam achievements).
+- **HDR for the games that want it.** A game's page turns HDR on for that game: Mantel
+  switches it on before the game starts and back off when it ends, through Windows or the
+  NVIDIA driver (Settings → System).
+- **Steam in Big Picture.** Optionally, Steam games start with Steam in Big Picture, which
+  closes again after the game.
+- **Tray icon.** Optionally, minimizing or closing hides Mantel in the notification area.
 - **Trailers.** Rest on a game for a moment and its trailer plays, muted, behind it.
   Settings → Interface turns that off.
 - **Apps next to the games.** The Apps tab opens music, video, chat and browsers: Microsoft
@@ -79,7 +87,10 @@ Mantel has no servers and sends no telemetry. It talks only to the services you 
 
 - **Steam.** You sign in on Steam's own page inside Mantel; Mantel never sees your
   password, and email Steam Guard codes work. Mantel then reads your owned games and achievements
-  with the same short-lived token the Steam store page uses.
+  with the same short-lived token the Steam store page uses. Without signing in, Mantel reads
+  achievements of played games from your public Steam profile through Steam's public Web API,
+  using the SteamID of the account Steam last signed in with on this PC, or the profile you
+  enter.
 - **Xbox.** You sign in on Microsoft's own page and allow Mantel to read your Xbox profile.
   Mantel reads your play history, minutes played and achievements from Xbox Live.
 - **Store catalogs.** Microsoft's public Game Pass and Store catalogs and Steam's store, for
@@ -92,7 +103,7 @@ Mantel has no servers and sends no telemetry. It talks only to the services you 
 
 Everything stays on your PC in `%APPDATA%\com.playmantel.launcher\`: `user.json` holds
 settings, favorites, playtime and the account tokens, which are encrypted for your Windows
-user (DPAPI); `cache.json` can be deleted at any time. Settings → Accounts signs you out and deletes the tokens.
+user (DPAPI), and never written unencrypted; `cache.json` can be deleted at any time. Settings → Accounts signs you out and deletes the tokens.
 
 ## Controls
 

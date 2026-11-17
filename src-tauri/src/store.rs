@@ -37,6 +37,15 @@ pub struct Settings {
     pub language: String,
     /// The Game Pass tab: the catalog is public, so it's on until the player hides it.
     pub game_pass: bool,
+    /// SteamID64 for achievements from the public profile; empty takes the account Steam
+    /// last signed in with on this PC.
+    pub steam_id: String,
+    /// Steam games start in Big Picture, which closes again when the game ends.
+    pub big_picture: bool,
+    /// How HDR is switched on for games that ask for it.
+    pub hdr_method: crate::hdr::Method,
+    /// An icon in the notification area; minimizing or closing the window hides it there.
+    pub tray: bool,
 }
 
 impl Default for Settings {
@@ -49,6 +58,10 @@ impl Default for Settings {
             trailers: true,
             language: String::new(),
             game_pass: true,
+            steam_id: String::new(),
+            big_picture: false,
+            hdr_method: crate::hdr::Method::Windows,
+            tray: false,
         }
     }
 }
@@ -64,6 +77,8 @@ pub struct GameMeta {
     pub added_at: Option<i64>,
     /// Images the player picked, shown ahead of everything the stores offer.
     pub art: Art,
+    /// HDR on while the game runs.
+    pub hdr: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,6 +156,8 @@ pub struct Cache {
     pub sizes: HashMap<String, MeasuredSize>,
     pub gamepass: crate::gamepass::Catalog,
     pub steam_facts: crate::steam_store::Facts,
+    /// Achievement progress from the public Steam profile, by app id.
+    pub steam_public: HashMap<u32, crate::steam_public::Progress>,
 }
 
 pub struct AppState {
@@ -216,7 +233,9 @@ pub mod secret {
         }
         match protect(value.as_bytes()) {
             Some(blob) => s.serialize_str(&format!("{PREFIX}{}", STANDARD.encode(blob))),
-            // Better on disk as it was than signed out.
+            // On Windows a token never goes to disk unencrypted: if DPAPI fails, the player
+            // signs in again next time. Elsewhere (development) there's no DPAPI at all.
+            None if cfg!(windows) => s.serialize_str(""),
             None => s.serialize_str(value),
         }
     }

@@ -57,6 +57,15 @@ struct Target {
 
 static PENDING: Mutex<Option<Pending>> = Mutex::new(None);
 
+/// Screens switched to HDR for a game, switched back when it ends.
+static HDR: LazyLock<Mutex<HashMap<String, Vec<crate::hdr::Switched>>>> = LazyLock::new(Default::default);
+
+/// Steam games started in Big Picture, which Mantel closes again after them.
+static BIG_PICTURE: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+
+/// How long Steam gets to open Big Picture before the game is asked for.
+const BIG_PICTURE_WAIT: Duration = Duration::from_secs(2);
+
 /// The processes each running game was last seen with, so closing or switching to one game
 /// doesn't reach another that runs the same program, as games added from one emulator do.
 static PIDS: LazyLock<Mutex<HashMap<String, HashSet<u32>>>> = LazyLock::new(Default::default);
@@ -102,6 +111,7 @@ pub fn launch(app: &AppHandle, game: &Game) -> Result<(), String> {
             Launch::Exe { .. } => Err("This game isn't installed".into()),
         };
     }
+    prepare(app, game);
     let pid = match &game.launch {
         // A shortcut to a program runs that program, as the shortcut would. Through the shell,
         // Windows first asks whether to run a program downloaded from the internet, like an
@@ -141,6 +151,47 @@ pub fn launch(app: &AppHandle, game: &Game) -> Result<(), String> {
     *PENDING.lock().unwrap() = Some(Pending { id: game.id.clone(), at: Instant::now(), pid, trackable });
     launched(&mut app.state::<AppState>().running.lock().unwrap(), &game.id, now());
     Ok(())
+}
+
+/// What a game asks for before it starts: HDR on, Steam in Big Picture.
+fn prepare(app: &AppHandle, game: &Game) {
+    let settings = app.state::<AppState>().user.lock().unwrap().settings.clone();
+    if game.hdr && !game.is_app() {
+        match crate::hdr::enable(settings.hdr_method) {
+            Ok(switched) => {
+                crate::log::info(&format!("hdr on for {} ({:?}, {} screens)", game.id, settings.hdr_method, switched.len()));
+                if !switched.is_empty() {
+                    HDR.lock().unwrap().insert(game.id.clone(), switched);
+                }
+            }
+            Err(e) => {
+                crate::log::warn(&format!("hdr for {}: {e}", game.id));
+                let _ = app.emit("hdr-failed", e);
+            }
+        }
+    }
+    if settings.big_picture && game.source == "steam" && matches!(game.launch, Launch::Uri { .. }) {
+        match open_uri("steam://open/bigpicture") {
+            Ok(()) => {
+                BIG_PICTURE.lock().unwrap().insert(game.id.clone());
+                std::thread::sleep(BIG_PICTURE_WAIT);
+            }
+            Err(e) => crate::log::warn(&format!("big picture: {e}")),
+        }
+    }
+}
+
+/// Undoes what [`prepare`] did, once the game is over or never started.
+fn wind_down(id: &str) {
+    if let Some(switched) = HDR.lock().unwrap().remove(id) {
+        crate::hdr::restore(&switched);
+        crate::log::info(&format!("hdr back off after {id}"));
+    }
+    if BIG_PICTURE.lock().unwrap().remove(id) {
+        if let Err(e) = open_uri("steam://close/bigpicture") {
+            crate::log::warn(&format!("big picture: {e}"));
+        }
+    }
 }
 
 /// A launch from Mantel. Only one waits for its process at a time, so an earlier launch that
@@ -541,6 +592,7 @@ fn started(app: &AppHandle, id: &str) -> bool {
 }
 
 fn finish(app: &AppHandle, id: &str, session: &Session) {
+    wind_down(id);
     let state = app.state::<AppState>();
     // The game was gone for every missed poll.
     let seconds = session.since.elapsed().as_secs().saturating_sub(POLL.as_secs() * session.misses as u64);
@@ -558,6 +610,12 @@ fn finish(app: &AppHandle, id: &str, session: &Session) {
     }
     state.running.lock().unwrap().retain(|r| r.id != id);
     PIDS.lock().unwrap().remove(id);
+    // Whatever was unlocked in the session is asked for on the next refresh.
+    if let Some(appid) = id.strip_prefix("steam:").and_then(|s| s.parse::<u32>().ok()) {
+        if let Some(p) = state.cache.lock().unwrap().steam_public.get_mut(&appid) {
+            p.at = 0;
+        }
+    }
     let what = if an_app { "app closed" } else { "session end" };
     crate::log::info(&format!("{what} {id} after {seconds}s"));
     let _ = app.emit("game-stopped", Stopped { id: id.to_string(), seconds });
@@ -627,6 +685,7 @@ fn expire_pending(app: &AppHandle, sessions: &HashMap<String, Session>) {
     }
     let id = p.id.clone();
     *pending = None;
+    wind_down(&id);
     app.state::<AppState>().running.lock().unwrap().retain(|r| r.id != id || r.detected);
     crate::log::warn(&format!("launch {id}: no process seen within {}s", limit.as_secs()));
     let _ = app.emit("game-launch-timeout", &id);

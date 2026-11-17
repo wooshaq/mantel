@@ -14,7 +14,7 @@ import { usePageHidden } from "./hooks";
 import { idleFor, Layer, setBackgroundInput, setWakeHandler, startInput, useInput } from "./input";
 import { warmUpSound } from "./sound";
 import { setLanguage, t } from "./i18n";
-import { boot, gameById, isGame, padIsFree, toast, useStore, wireEvents } from "./store";
+import { boot, gameById, isGame, padIsFree, syncTray, toast, useStore, wireEvents } from "./store";
 import { installLabel } from "./util";
 import { Details } from "./views/Details";
 import { GamePass } from "./views/GamePass";
@@ -120,6 +120,12 @@ export function App() {
     boot().catch((e) => toast(t("Startup failed: {error}", { error: String(e) }), "warn"));
     return off;
   }, []);
+
+  // The tray icon's menu speaks the interface's language.
+  const tray = useStore((s) => s.settings?.tray);
+  useEffect(() => {
+    if (tray !== undefined) syncTray();
+  }, [tray, lang]);
 
   useEffect(() => {
     document.documentElement.style.setProperty("--accent", accent);
