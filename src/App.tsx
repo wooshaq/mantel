@@ -103,13 +103,15 @@ export function App() {
   const overlay = useStore((s) => s.overlay);
   const accent = useStore((s) => s.accent);
   // Pauses CSS motion while a game is in front, so Mantel costs nothing in the background.
-  const idle = usePageHidden();
+  const pageHidden = usePageHidden();
+  const away = useStore((s) => s.away);
+  const idle = pageHidden || away;
   const launching = useStore((s) => s.launching);
   const setup = useStore((s) => s.setupStep !== null);
   // The screensaver shows the games' art; with none (Home's empty state) there's nothing to show.
   const hasGames = useStore((s) => s.games.some((g) => g.installed && !g.hidden && isGame(g)) || Object.keys(s.installs).length > 0);
   const updateShown = useStore((s) => s.updateOffer !== null || s.updating !== null);
-  const ambient = useAmbient(view === "home" && !detailsId && !overlay && !launching && !setup && hasGames && !updateShown);
+  const ambient = useAmbient(view === "home" && !detailsId && !overlay && !launching && !setup && hasGames && !updateShown && !away);
 
   useEffect(() => {
     startInput();

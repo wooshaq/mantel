@@ -52,7 +52,7 @@ async function layerFor(game: Game): Promise<Layer> {
 /**
  * The focused game's trailer over its art (or the open page's game), muted and looping, once
  * focus has rested on it for a moment. Paused under overlays; stopped while a game runs or
- * Mantel is out of sight.
+ * Mantel is out of sight, in the tray or minimized.
  */
 function Trailer() {
   const focusId = useStore((s) => s.detailsId ?? s.focusId);
@@ -62,11 +62,24 @@ function Trailer() {
   const covered = useStore((s) => s.overlay !== null || s.launching !== null || s.watching || s.setupStep !== null);
   const running = useStore((s) => gamesRunning(s).length > 0);
   const hidden = usePageHidden();
+  const away = useStore((s) => s.away);
+  // Back from the tray, the trailer waits for the player to do something first: coming back
+  // isn't the same as resting on a game.
+  const [held, setHeld] = useState(false);
+  useEffect(() => {
+    if (away) return setHeld(true);
+    if (!held) return;
+    const back = Date.now();
+    const check = setInterval(() => {
+      if (idleFor() < Date.now() - back) setHeld(false);
+    }, 500);
+    return () => clearInterval(check);
+  }, [away, held]);
   const video = useRef<HTMLVideoElement>(null);
   const coveredRef = useRef(covered);
   coveredRef.current = covered;
   const [shown, setShown] = useState(false);
-  const live = enabled && onStage && !running && !hidden;
+  const live = enabled && onStage && !running && !hidden && !away && !held;
 
   useEffect(() => {
     const game = gameById(focusId);

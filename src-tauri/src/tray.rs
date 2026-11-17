@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 
 use crate::store::AppState;
 
@@ -52,6 +52,13 @@ pub fn set(app: &AppHandle, on: bool, show: &str, quit: &str) -> Result<(), Stri
 fn to_tray(w: &tauri::WebviewWindow) {
     let _ = w.set_skip_taskbar(true);
     let _ = w.hide();
+    away(w, true);
+}
+
+/// Tells the interface whether Mantel is out of sight, in the tray or minimized: nothing like
+/// a trailer should play then. WebView2 doesn't notice a hidden window by itself.
+pub fn away(w: &tauri::WebviewWindow, gone: bool) {
+    let _ = w.emit("window-away", gone);
 }
 
 /// Out of the way while a game runs: into the tray when it's on, else minimized.
@@ -61,6 +68,7 @@ pub fn step_aside(app: &AppHandle) {
         to_tray(&w);
     } else {
         let _ = w.minimize();
+        away(&w, true);
     }
 }
 
@@ -75,15 +83,21 @@ pub fn init(app: &AppHandle) {
     let Some(window) = app.get_webview_window("main") else { return };
     let w = window.clone();
     window.on_window_event(move |e| {
-        if !ON.load(Ordering::Relaxed) {
-            return;
-        }
+        let tray = ON.load(Ordering::Relaxed);
         match e {
-            WindowEvent::CloseRequested { api, .. } => {
+            WindowEvent::CloseRequested { api, .. } if tray => {
                 api.prevent_close();
                 to_tray(&w);
             }
-            WindowEvent::Resized(_) if w.is_minimized().unwrap_or(false) => to_tray(&w),
+            WindowEvent::Resized(_) => {
+                let minimized = w.is_minimized().unwrap_or(false);
+                if minimized && tray {
+                    to_tray(&w);
+                } else {
+                    // Minimized to the taskbar, or brought back from it.
+                    away(&w, minimized);
+                }
+            }
             _ => {}
         }
     });

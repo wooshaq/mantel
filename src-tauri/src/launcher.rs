@@ -673,6 +673,7 @@ pub fn to_front(app: &AppHandle) {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
+        crate::tray::away(&w, false);
     }
 }
 

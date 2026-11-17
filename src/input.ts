@@ -64,6 +64,9 @@ let wake: () => boolean = () => false;
 /** Milliseconds since the player last did anything: buttons, keys, touch, mouse. */
 export const idleFor = () => Date.now() - lastInput;
 
+/** Back from the tray: the time away doesn't count as the player sitting idle in front of it. */
+export const resetIdle = () => void (lastInput = Date.now());
+
 const markActivity = () => {
   lastInput = Date.now();
   keepSoundAwake();

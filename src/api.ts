@@ -100,7 +100,7 @@ export interface Api {
   appVersion(): Promise<string>;
 }
 
-export type GameEvent = "game-started" | "game-stopped" | "game-launch-timeout" | "install-progress" | "game-uninstalled" | "front-app" | "hdr-failed";
+export type GameEvent = "game-started" | "game-stopped" | "game-launch-timeout" | "install-progress" | "game-uninstalled" | "front-app" | "hdr-failed" | "window-away";
 
 export interface FullScreenMode {
   supported: boolean;

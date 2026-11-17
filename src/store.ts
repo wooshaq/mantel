@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { api } from "./api";
 import { errorText, locale, steamLanguage, t } from "./i18n";
-import { rumble } from "./input";
+import { resetIdle, rumble } from "./input";
 import { setSoundEnabled, sound } from "./sound";
 import type { AccountsStatus, Editions, Game, InstallProgress, Running, Settings, StoreHome, StoreShelf } from "./types";
 import { accentFor, baseTitle, DEFAULT_ACCENT, money, SOURCE_NAME } from "./util";
@@ -67,6 +67,8 @@ interface State {
   uninstalling: string | null;
   /** The game page is to open with its achievements list showing. */
   achievementsAsk: string | null;
+  /** Mantel is in the tray or minimized: idle, nothing plays. */
+  away: boolean;
   loaded: boolean;
   scanning: boolean;
   settings: Settings | null;
@@ -112,6 +114,7 @@ export const useStore = create<State>(() => ({
   cancelAsk: null,
   uninstalling: null,
   achievementsAsk: null,
+  away: false,
   loaded: false,
   scanning: false,
   settings: null,
@@ -594,6 +597,11 @@ export function wireEvents() {
       if (game?.source === "steam") setTimeout(() => void refreshAchievements(), 30_000);
     }),
     api.on("front-app", (payload) => void (appInFront = payload === true)),
+    api.on("window-away", (payload) => {
+      const away = payload === true;
+      if (!away && get().away) resetIdle();
+      set({ away });
+    }),
     api.on("hdr-failed", (payload) => toast(t("HDR didn't turn on: {error}", { error: errorText(payload) }), "warn")),
     api.on("install-progress", (payload) => void installProgress(payload as InstallProgress)),
     api.on("game-uninstalled", (payload) => void gameUninstalled(payload as string)),
