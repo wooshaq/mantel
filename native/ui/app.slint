@@ -1,0 +1,733 @@
+// Mantel WsQ, native interface. Sizes are in "u": 1/1080 of the window's height, so the layout
+// is the same on a 1080p TV, a handheld and a 4K monitor.
+
+export struct Card {
+    id: string,
+    name: string,
+    cover: image,
+    has-cover: bool,
+    hue: float,
+    source: string,
+    favorite: bool,
+    running: bool,
+}
+
+export struct Focused {
+    id: string,
+    name: string,
+    source: string,
+    source-label: string,
+    hero: image,
+    has-hero: bool,
+    logo: image,
+    has-logo: bool,
+    played-value: string,
+    played-unit: string,
+    last: string,
+    ach-value: string,
+    ach-total: string,
+    ach-ratio: float,
+    has-ach: bool,
+    size: string,
+    favorite: bool,
+    running: bool,
+}
+
+export struct Hint {
+    button: string,
+    label: string,
+}
+
+export global Tr {
+    in property <int> rev;
+    pure callback t(string, int) -> string;
+    pure callback upper(string) -> string;
+    public pure function s(text: string) -> string {
+        return t(text, rev);
+    }
+}
+
+global Theme {
+    out property <color> bg: #06070b;
+    out property <color> text: #f4f5f8;
+    out property <color> dim: #a7abb8;
+    out property <color> faint: #6c7080;
+    out property <color> accent: #ff4d5e;
+    out property <color> glass: #ffffff1f;
+    out property <color> glass-hi: #ffffff3a;
+}
+
+component SourceIcon inherits Image {
+    in property <string> src;
+    source: src == "steam" ? @image-url("icons/steam.svg")
+        : src == "epic" ? @image-url("icons/epicgames.svg")
+        : src == "gog" ? @image-url("icons/gogdotcom.svg")
+        : src == "xbox" ? @image-url("icons/xbox.svg")
+        : src == "ubisoft" ? @image-url("icons/ubisoft.svg")
+        : @image-url("icons/star.svg");
+    colorize: white;
+    image-fit: contain;
+}
+
+component Cover inherits Rectangle {
+    in property <Card> card;
+    in property <bool> focused;
+    in property <length> u;
+    border-radius: 14 * u;
+    clip: true;
+    background: @linear-gradient(160deg, hsv(card.hue, 0.55, 0.42) 0%, hsv(card.hue + 40, 0.65, 0.16) 100%);
+    if !card.has-cover: Text {
+        x: 14 * u;
+        width: parent.width - 28 * u;
+        y: parent.height * 0.35;
+        text: card.name;
+        color: #ffffffdd;
+        font-size: 22 * u;
+        font-weight: 700;
+        wrap: word-wrap;
+        horizontal-alignment: center;
+    }
+    if card.has-cover: Image {
+        width: parent.width;
+        height: parent.height;
+        source: card.cover;
+        image-fit: cover;
+    }
+    if card.favorite: Rectangle {
+        x: parent.width - 38 * u;
+        y: 12 * u;
+        width: 26 * u;
+        height: 26 * u;
+        border-radius: 13 * u;
+        background: #000000a0;
+        Image {
+            width: 14 * u;
+            height: 14 * u;
+            source: @image-url("icons/star.svg");
+            colorize: #ffd23f;
+        }
+    }
+    Rectangle {
+        x: parent.width - 36 * u;
+        y: parent.height - 36 * u;
+        width: 26 * u;
+        height: 26 * u;
+        border-radius: 13 * u;
+        background: #000000a0;
+        SourceIcon {
+            width: 15 * u;
+            height: 15 * u;
+            src: card.source;
+        }
+    }
+    if card.running: Rectangle {
+        x: 10 * u;
+        y: parent.height - 36 * u;
+        height: 24 * u;
+        width: running-label.preferred-width + 20 * u;
+        border-radius: 6 * u;
+        background: #2fd27a;
+        running-label := Text {
+            text: Tr.s("Playing");
+            color: #062712;
+            font-size: 13 * u;
+            font-weight: 800;
+        }
+    }
+    Rectangle {
+        border-radius: parent.border-radius;
+        border-width: focused ? 5 * u : 0;
+        border-color: white;
+    }
+}
+
+component Stat inherits VerticalLayout {
+    in property <string> value;
+    in property <string> unit;
+    in property <string> label;
+    in property <float> ratio: -1;
+    in property <length> u;
+    spacing: 8 * u;
+    HorizontalLayout {
+        alignment: start;
+        spacing: 6 * u;
+        Text {
+            text: value;
+            color: Theme.text;
+            font-size: 44 * u;
+            vertical-alignment: bottom;
+        }
+        if unit != "": Text {
+            text: unit;
+            color: Theme.dim;
+            font-size: 26 * u;
+            vertical-alignment: bottom;
+        }
+    }
+    Text {
+        text: Tr.upper(label);
+        color: Theme.dim;
+        font-size: 16 * u;
+        letter-spacing: 3 * u;
+        font-weight: 600;
+    }
+    if ratio >= 0: Rectangle {
+        height: 4 * u;
+        width: 150 * u;
+        border-radius: 2 * u;
+        background: #ffffff30;
+        Rectangle {
+            x: 0;
+            width: parent.width * ratio;
+            border-radius: 2 * u;
+            background: white;
+        }
+    }
+}
+
+component Pill inherits Rectangle {
+    in property <string> label;
+    in property <image> icon;
+    in property <bool> has-icon: true;
+    in property <bool> focused;
+    in property <length> u;
+    callback clicked();
+    height: 72 * u;
+    border-radius: self.height / 2;
+    background: focused ? white : Theme.glass;
+    animate background { duration: 140ms; }
+    HorizontalLayout {
+        alignment: center;
+        spacing: 12 * u;
+        if has-icon: Image {
+            width: 18 * u;
+            source: icon;
+            colorize: focused ? #0b0c10 : white;
+            image-fit: contain;
+        }
+        if label != "": Text {
+            text: label;
+            color: focused ? #0b0c10 : white;
+            font-size: 22 * u;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+    }
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+component Hints inherits HorizontalLayout {
+    in property <[Hint]> hints;
+    in property <length> u;
+    alignment: end;
+    spacing: 28 * u;
+    for h in hints: HorizontalLayout {
+        spacing: 10 * u;
+        Rectangle {
+            width: max(30 * u, key-label.preferred-width + 14 * u);
+            height: 30 * u;
+            border-radius: 15 * u;
+            border-width: 1.5 * u;
+            border-color: h.button == "a" ? #3ad06c : h.button == "b" ? #ff5a5a : h.button == "x" ? #4c8dff : h.button == "y" ? #f5c542 : #ffffff80;
+            key-label := Text {
+                text: h.button == "a" ? "A" : h.button == "b" ? "B" : h.button == "x" ? "X" : h.button == "y" ? "Y" : h.button == "lb" ? "LB" : h.button == "rb" ? "RB" : h.button == "menu" ? "≡" : h.button;
+                color: h.button == "a" ? #3ad06c : h.button == "b" ? #ff5a5a : h.button == "x" ? #4c8dff : h.button == "y" ? #f5c542 : white;
+                font-size: 14 * u;
+                font-weight: 800;
+            }
+        }
+        Text {
+            text: h.label;
+            color: Theme.text;
+            font-size: 20 * u;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Mantel";
+    preferred-width: 1600px;
+    preferred-height: 900px;
+    min-width: 960px;
+    min-height: 540px;
+    background: Theme.bg;
+    icon: @image-url("icons/mantel.png");
+
+    in property <[Card]> shelf;
+    in property <[Card]> library;
+    in property <Focused> focus-info;
+    in property <string> clock;
+    in property <string> battery;
+    in property <string> toast;
+    in property <bool> scanning;
+    in property <int> library-total;
+    // Launch overlay: "", "starting", "playing", "handed", "failed".
+    in property <string> launch-phase;
+    in property <Card> launch-card;
+    in property <string> launch-store;
+    in-out property <int> tab: 0;
+    in-out property <int> shelf-index: 0;
+    in-out property <int> library-index: 0;
+    // On Home: the row of buttons or the shelf.
+    in-out property <bool> on-buttons: false;
+    in-out property <int> button-index: 0;
+
+    callback launch(string);
+    callback toggle-favorite(string);
+    callback focus-changed(string);
+    callback rescan();
+    callback dismiss-launch();
+    callback quit();
+    callback toggle-fullscreen();
+
+    property <length> u: self.height / 1080;
+    property <int> library-columns: 7;
+    property <Card> lib-card: library[library-index];
+
+    public function act(a: string) {
+        if (launch-phase != "") {
+            if (a == "b" || a == "a") { root.dismiss-launch(); }
+            return;
+        }
+        if (a == "lb") { root.switch-tab(-1); return; }
+        if (a == "rb") { root.switch-tab(1); return; }
+        if (tab == 0) {
+            root.home(a);
+        } else {
+            root.lib(a);
+        }
+    }
+
+    function switch-tab(d: int) {
+        tab = Math.mod(tab + d + 2, 2);
+        root.announce();
+    }
+
+    function announce() {
+        if (tab == 0 && shelf.length > 0) {
+            root.focus-changed(shelf[shelf-index].id);
+        } else if (tab == 1 && library.length > 0) {
+            root.focus-changed(library[library-index].id);
+        }
+    }
+
+    function home(a: string) {
+        if (shelf.length == 0) {
+            if (a == "y" || a == "a") { root.rescan(); }
+            return;
+        }
+        if (on-buttons) {
+            if (a == "left") { button-index = max(0, button-index - 1); }
+            else if (a == "right") { button-index = min(2, button-index + 1); }
+            else if (a == "down" || a == "b") { on-buttons = false; }
+            else if (a == "a") {
+                if (button-index == 0) { root.launch(shelf[shelf-index].id); }
+                else if (button-index == 2) { root.toggle-favorite(shelf[shelf-index].id); }
+            }
+            return;
+        }
+        if (a == "left" && shelf-index > 0) { shelf-index -= 1; root.announce(); }
+        else if (a == "right" && shelf-index < shelf.length - 1) { shelf-index += 1; root.announce(); }
+        else if (a == "up") { on-buttons = true; button-index = 0; }
+        else if (a == "a") { root.launch(shelf[shelf-index].id); }
+        else if (a == "x") { root.toggle-favorite(shelf[shelf-index].id); }
+    }
+
+    function lib(a: string) {
+        if (library.length == 0) { return; }
+        if (a == "left" && Math.mod(library-index, library-columns) > 0) { library-index -= 1; root.announce(); }
+        else if (a == "right" && library-index < library.length - 1 && Math.mod(library-index, library-columns) < library-columns - 1) { library-index += 1; root.announce(); }
+        else if (a == "up" && library-index >= library-columns) { library-index -= library-columns; root.announce(); }
+        else if (a == "down" && library-index + library-columns < library.length) { library-index += library-columns; root.announce(); }
+        else if (a == "down" && library-index + library-columns >= library.length && Math.floor(library-index / library-columns) < Math.floor((library.length - 1) / library-columns)) { library-index = library.length - 1; root.announce(); }
+        else if (a == "a") { root.launch(library[library-index].id); }
+        else if (a == "x") { root.toggle-favorite(library[library-index].id); }
+        else if (a == "b") { tab = 0; root.announce(); }
+    }
+
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.LeftArrow) { root.act("left"); return accept; }
+            if (event.text == Key.RightArrow) { root.act("right"); return accept; }
+            if (event.text == Key.UpArrow) { root.act("up"); return accept; }
+            if (event.text == Key.DownArrow) { root.act("down"); return accept; }
+            if (event.text == Key.Return || event.text == " ") { root.act("a"); return accept; }
+            if (event.text == Key.Escape || event.text == Key.Backspace) { root.act("b"); return accept; }
+            if (event.text == "f" || event.text == "x") { root.act("x"); return accept; }
+            if (event.text == "y") { root.act("y"); return accept; }
+            if (event.text == "q" || event.text == Key.PageUp) { root.act("lb"); return accept; }
+            if (event.text == "e" || event.text == Key.PageDown || event.text == Key.Tab) { root.act("rb"); return accept; }
+            if (event.text == Key.F5) { root.rescan(); return accept; }
+            if (event.text == Key.F11) { root.toggle-fullscreen(); return accept; }
+            return reject;
+        }
+    }
+
+    // ---- Background: the focused game's art, faded into the dark on the left and bottom.
+    Rectangle {
+        opacity: focus-info.has-hero ? 1 : 0;
+        animate opacity { duration: 350ms; }
+        Image {
+            width: parent.width;
+            height: parent.height;
+            source: focus-info.hero;
+            image-fit: cover;
+        }
+    }
+    Rectangle {
+        background: @linear-gradient(90deg, #06070bf2 0%, #06070bb0 38%, #06070b20 70%, #06070b00 100%);
+    }
+    Rectangle {
+        background: @linear-gradient(180deg, #06070b90 0%, #06070b00 18%, #06070b00 55%, #06070bf0 100%);
+    }
+
+    // ---- Top bar
+    HorizontalLayout {
+        x: 40 * u;
+        y: 30 * u;
+        height: 54 * u;
+        spacing: 36 * u;
+        Rectangle {
+            width: 34 * u;
+            height: 24 * u;
+            y: 15 * u;
+            border-radius: 5 * u;
+            border-width: 1 * u;
+            border-color: #ffffff60;
+            Text { text: "LB"; color: Theme.dim; font-size: 11 * u; font-weight: 800; }
+        }
+        for name[i] in [Tr.s("Games"), Tr.s("Library")]: Rectangle {
+            width: tab-text.preferred-width;
+            tab-text := Text {
+                text: name;
+                color: tab == i ? Theme.text : Theme.faint;
+                font-size: 30 * u;
+                font-weight: tab == i ? 700 : 500;
+            }
+            if tab == i: Rectangle {
+                y: parent.height + 4 * u;
+                height: 5 * u;
+                border-radius: 3 * u;
+                background: Theme.accent;
+            }
+            TouchArea { clicked => { tab = i; root.announce(); } }
+        }
+        Rectangle {
+            width: 34 * u;
+            height: 24 * u;
+            y: 15 * u;
+            border-radius: 5 * u;
+            border-width: 1 * u;
+            border-color: #ffffff60;
+            Text { text: "RB"; color: Theme.dim; font-size: 11 * u; font-weight: 800; }
+        }
+    }
+    HorizontalLayout {
+        x: parent.width - self.preferred-width - 72 * u;
+        y: 30 * u;
+        height: 54 * u;
+        spacing: 26 * u;
+        if scanning: Text {
+            text: Tr.s("Scanning…");
+            color: Theme.dim;
+            font-size: 20 * u;
+            vertical-alignment: center;
+        }
+        if battery != "": Text {
+            text: battery;
+            color: Theme.text;
+            font-size: 22 * u;
+            vertical-alignment: center;
+        }
+        Text {
+            text: clock;
+            color: Theme.text;
+            font-size: 30 * u;
+            vertical-alignment: center;
+        }
+    }
+
+    // ---- Home
+    if tab == 0 && shelf.length == 0: VerticalLayout {
+        x: 104 * u;
+        y: 360 * u;
+        width: 900 * u;
+        spacing: 20 * u;
+        Text {
+            text: scanning ? Tr.s("Looking for your games…") : Tr.s("No games found");
+            color: Theme.text;
+            font-size: 56 * u;
+            font-weight: 700;
+        }
+        Text {
+            text: Tr.s("Mantel reads your Steam, Epic Games, GOG, Xbox / Game Pass and Ubisoft Connect libraries. Install something in any of them, or add your own in Settings.");
+            color: Theme.dim;
+            font-size: 22 * u;
+            wrap: word-wrap;
+        }
+    }
+    if tab == 0 && shelf.length > 0: Rectangle {
+        HorizontalLayout {
+            x: 104 * u;
+            y: 136 * u;
+            height: 34 * u;
+            spacing: 12 * u;
+            SourceIcon {
+                width: 22 * u;
+                src: focus-info.source;
+            }
+            Text {
+                text: focus-info.source-label;
+                color: Theme.text;
+                font-size: 19 * u;
+                letter-spacing: 4 * u;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+        }
+        if focus-info.has-logo: Image {
+            x: 104 * u;
+            y: 186 * u;
+            width: 460 * u;
+            height: 210 * u;
+            source: focus-info.logo;
+            image-fit: contain;
+            horizontal-alignment: left;
+            vertical-alignment: center;
+        }
+        if !focus-info.has-logo: Text {
+            x: 104 * u;
+            y: 186 * u;
+            width: 900 * u;
+            height: 210 * u;
+            text: focus-info.name;
+            color: Theme.text;
+            font-size: 76 * u;
+            font-weight: 800;
+            wrap: word-wrap;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        HorizontalLayout {
+            x: 104 * u;
+            y: 432 * u;
+            height: 96 * u;
+            spacing: 46 * u;
+            alignment: start;
+            Stat { u: u; value: focus-info.played-value; unit: focus-info.played-unit; label: Tr.s("Played"); }
+            Rectangle { width: 1 * u; background: #ffffff30; }
+            Stat { u: u; value: focus-info.last; label: Tr.s("Last played"); }
+            if focus-info.has-ach: Rectangle { width: 1 * u; background: #ffffff30; }
+            if focus-info.has-ach: Stat { u: u; value: focus-info.ach-value; unit: "/" + focus-info.ach-total; label: Tr.s("Achievements"); ratio: focus-info.ach-ratio; }
+            Rectangle { width: 1 * u; background: #ffffff30; }
+            Stat { u: u; value: focus-info.size; label: Tr.s("On disk"); }
+        }
+        HorizontalLayout {
+            x: 104 * u;
+            y: 542 * u;
+            height: 72 * u;
+            spacing: 16 * u;
+            Pill {
+                u: u;
+                width: 256 * u;
+                label: focus-info.running ? Tr.s("Resume") : Tr.s("Play");
+                icon: @image-url("icons/play.svg");
+                focused: on-buttons && button-index == 0;
+                clicked => { root.launch(focus-info.id); }
+            }
+            Pill {
+                u: u;
+                width: 72 * u;
+                icon: @image-url("icons/dots.svg");
+                focused: on-buttons && button-index == 1;
+            }
+            Pill {
+                u: u;
+                width: 72 * u;
+                icon: @image-url("icons/star.svg");
+                focused: on-buttons && button-index == 2;
+                clicked => { root.toggle-favorite(focus-info.id); }
+            }
+        }
+        // The shelf: the focused cover is bigger and second from the left, so the one before
+        // it still shows which way the shelf goes on.
+        property <length> cw: 163 * u;
+        property <length> ch: 245 * u;
+        property <length> gap: 20 * u;
+        property <float> big: 1.32;
+        property <int> first: max(0, shelf-index - 1);
+        property <length> base-y: 970 * u;
+        Rectangle {
+            x: 104 * u + (shelf-index - first) * (cw + gap) - 30 * u;
+            y: base-y - ch * big - 30 * u;
+            width: cw * big + 60 * u;
+            height: ch * big + 60 * u;
+            border-radius: 30 * u;
+            background: @radial-gradient(circle, #ff4d5e55 0%, #ff4d5e00 70%);
+            opacity: on-buttons ? 0 : 1;
+            animate x { duration: 220ms; easing: ease-out; }
+        }
+        for c[i] in shelf: Cover {
+            u: u;
+            card: c;
+            focused: i == shelf-index && !on-buttons;
+            width: i == shelf-index ? cw * big : cw;
+            height: i == shelf-index ? ch * big : ch;
+            x: 104 * u + (i - first) * (cw + gap) + (i > shelf-index ? cw * (big - 1) : 0);
+            y: base-y - self.height;
+            opacity: i < first ? 0 : 1;
+            animate x, width, height, y, opacity { duration: 220ms; easing: ease-out; }
+            TouchArea {
+                clicked => {
+                    if (shelf-index == i) { root.launch(c.id); } else { shelf-index = i; on-buttons = false; root.announce(); }
+                }
+            }
+        }
+        Hints {
+            u: u;
+            x: 0;
+            width: parent.width - 72 * u;
+            y: parent.height - 66 * u;
+            height: 36 * u;
+            hints: on-buttons
+                ? [{ button: "a", label: Tr.s("Select") }, { button: "b", label: Tr.s("Back") }]
+                : [{ button: "a", label: focus-info.running ? Tr.s("Resume") : Tr.s("Play") }, { button: "x", label: focus-info.favorite ? Tr.s("Unfavorite") : Tr.s("Favorite") }, { button: "lb", label: Tr.s("Tabs") }];
+        }
+    }
+
+    // ---- Library: every installed game in a grid.
+    if tab == 1: Rectangle {
+        background: #06070bd8;
+        HorizontalLayout {
+            x: 104 * u;
+            y: 120 * u;
+            height: 70 * u;
+            spacing: 20 * u;
+            alignment: start;
+            Text {
+                text: Tr.s("Installed games");
+                color: Theme.text;
+                font-size: 46 * u;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+            Text {
+                text: library-total;
+                color: Theme.accent;
+                font-size: 26 * u;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+        }
+        property <length> gw: (parent.width - 208 * u - (library-columns - 1) * 22 * u) / library-columns;
+        property <length> gh: gw * 1.5;
+        property <int> focus-row: Math.floor(library-index / library-columns);
+        lib-flick := Flickable {
+            x: 104 * u - 20 * u;
+            y: 210 * u;
+            width: parent.width - 168 * u;
+            height: parent.height - 290 * u;
+            content-height: (Math.floor((library.length + library-columns - 1) / library-columns)) * (gh + 22 * u) + 40 * u;
+            content-y: -max(0, min(focus-row * (gh + 22 * u) - 10 * u, self.content-height - self.height));
+            animate content-y { duration: 200ms; easing: ease-out; }
+            for c[i] in library: Cover {
+                u: u;
+                card: c;
+                focused: i == library-index;
+                x: 20 * u + Math.mod(i, library-columns) * (gw + 22 * u);
+                y: 20 * u + Math.floor(i / library-columns) * (gh + 22 * u);
+                width: gw;
+                height: gh;
+                TouchArea {
+                    clicked => {
+                        if (library-index == i) { root.launch(c.id); } else { library-index = i; root.announce(); }
+                    }
+                }
+            }
+        }
+        Text {
+            x: 104 * u;
+            y: parent.height - 66 * u;
+            height: 36 * u;
+            text: library.length > 0 ? lib-card.name : "";
+            color: Theme.text;
+            font-size: 24 * u;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+        Hints {
+            u: u;
+            x: 0;
+            width: parent.width - 72 * u;
+            y: parent.height - 66 * u;
+            height: 36 * u;
+            hints: [{ button: "a", label: Tr.s("Play") }, { button: "x", label: Tr.s("Favorite") }, { button: "b", label: Tr.s("Back") }];
+        }
+    }
+
+    // ---- Launch overlay
+    if launch-phase != "": Rectangle {
+        background: @radial-gradient(circle, hsv(launch-card.hue, 0.6, 0.35) 0%, #06070bf8 70%);
+        TouchArea { clicked => { root.dismiss-launch(); } }
+        Cover {
+            u: u;
+            card: launch-card;
+            x: (parent.width - self.width) / 2;
+            y: parent.height * 0.26;
+            width: 260 * u;
+            height: 390 * u;
+        }
+        Text {
+            x: 0;
+            width: parent.width;
+            y: parent.height * 0.26 + 420 * u;
+            horizontal-alignment: center;
+            text: launch-phase == "starting" ? Tr.s("Starting")
+                : launch-phase == "playing" ? Tr.s("Enjoy")
+                : launch-phase == "handed" ? Tr.s("If the game opened, you’re all set")
+                : Tr.s("Couldn’t launch");
+            color: Theme.text;
+            font-size: 44 * u;
+            font-weight: 700;
+        }
+        Text {
+            x: 0;
+            width: parent.width;
+            y: parent.height * 0.26 + 480 * u;
+            horizontal-alignment: center;
+            text: launch-phase == "playing" ? Tr.s("Mantel will wait in the background") : launch-store;
+            color: Theme.dim;
+            font-size: 24 * u;
+        }
+        Hints {
+            u: u;
+            x: 0;
+            width: parent.width - 72 * u;
+            y: parent.height - 66 * u;
+            height: 36 * u;
+            hints: [{ button: "b", label: Tr.s("Dismiss") }];
+        }
+    }
+
+    // ---- Toast
+    if toast != "": Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: parent.height - 150 * u;
+        width: toast-text.preferred-width + 60 * u;
+        height: 58 * u;
+        border-radius: 29 * u;
+        background: #1b1d26f0;
+        border-width: 1 * u;
+        border-color: #ffffff22;
+        toast-text := Text {
+            text: toast;
+            color: Theme.text;
+            font-size: 21 * u;
+        }
+    }
+
+    init => { keys.focus(); }
+}

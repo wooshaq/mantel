@@ -6,3 +6,4 @@ release
 src-tauri/gen
 src-tauri/target
 *.log
+native/target

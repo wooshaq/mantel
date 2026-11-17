@@ -1,0 +1,76 @@
+[package]
+name = "mantel-native"
+version = "0.6.0-alpha.1"
+description = "Mantel WsQ: console-style game launcher, native (Slint) build"
+license = "GPL-3.0-or-later"
+edition = "2021"
+
+[[bin]]
+name = "mantel"
+path = "src/main.rs"
+
+[dependencies]
+slint = { version = "1.19", default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "renderer-software", "compat-1-2", "system-tray", "image-default-formats", "raw-window-handle-06"] }
+raw-window-handle = "0.6"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json"] }
+futures = "0.3"
+sysinfo = "0.37"
+base64 = "0.22"
+roxmltree = "0.20"
+tokio = { version = "1", features = ["sync", "time", "rt-multi-thread"] }
+percent-encoding = "2"
+# App icons taken from programs, saved as pictures. Tauri builds it already.
+png = "0.18"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+# COM interfaces for the control center: Core Audio volume and WMI brightness.
+windows = { version = "0.62", features = [
+  # Listing installed Store packages (Xbox games) without PowerShell.
+  "ApplicationModel",
+  "Foundation_Collections",
+  "Management_Deployment",
+  "Win32_Foundation",
+  "Win32_Media_Audio",
+  "Win32_Media_Audio_Endpoints",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Ole",
+  "Win32_System_Rpc",
+  "Win32_System_Variant",
+  "Win32_System_Wmi",
+  "Win32_Storage_FileSystem",
+  "Win32_UI_Shell",
+] }
+windows-sys = { version = "0.60", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_NetworkManagement_WiFi",
+  "Win32_Security_Cryptography",
+  "Win32_Storage_Packaging_Appx",
+  "Win32_System_Com",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Power",
+  "Win32_System_Registry",
+  "Win32_System_Threading",
+  "Win32_UI_Accessibility",
+  "Win32_UI_Input_XboxController",
+  "Win32_Globalization",
+  "Win32_System_Time",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+slint-build = "1.19"
+winresource = "0.1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

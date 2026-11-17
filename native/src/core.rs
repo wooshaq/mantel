@@ -1,0 +1,954 @@
+use crate::{accounts, apps, art, fse, gamepass, icons, install, steam_install, steam_store, xbox_store, launcher, library, log, model, pick, store, system, uninstall};
+
+use serde_json::Value;
+use crate::host::{AppHandle, Manager};
+
+use model::{now, Game};
+use store::{AppState, CustomGame, MeasuredSize, Settings};
+
+/// Unresolved art is retried after a week; the game may have reached Steam since.
+const ART_RETRY_SECS: i64 = 7 * 24 * 3600;
+/// Measured folder sizes are taken again after a week: games update.
+const SIZE_RETRY_SECS: i64 = 7 * 24 * 3600;
+
+pub fn snapshot(state: &AppState) -> Vec<Game> {
+    let cache = state.cache.lock().unwrap();
+    let user = state.user.lock().unwrap();
+    let mut games = cache.library.clone();
+    library::apply_meta(&mut games, &user, &cache.art);
+    for g in games.iter_mut() {
+        cache.steam_facts.apply(g);
+    }
+    for g in games.iter_mut().filter(|g| g.size_bytes.is_none()) {
+        g.size_bytes = g.install_dir.as_ref().and_then(|d| cache.sizes.get(d)).and_then(|s| s.bytes);
+    }
+    games
+}
+
+/// The web build had to let its page read these folders; the native one reads files directly.
+pub fn allow_assets(_app: &AppHandle, _dirs: &[std::path::PathBuf]) {}
+
+pub fn rescan(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let (settings, custom, steam_signed_in, mut exclude) = {
+        let user = state.user.lock().unwrap();
+        let mut exclude = apps::Exclude { taken: user.apps.iter().map(|a| a.target.clone()).collect(), ..Default::default() };
+        exclude.taken.extend(user.dismissed_apps.iter().cloned());
+        (user.settings.clone(), user.custom.clone(), user.accounts.steam_signed_in, exclude)
+    };
+    // The Start menu is read while the stores scan: known apps join the Apps tab by themselves,
+    // and Store apps on it follow their folder across updates.
+    let icons = state.icons_dir();
+    exclude.game_names.push("Mantel".into());
+    let discovery = std::thread::spawn({
+        let icons = icons.clone();
+        move || {
+            let list = apps::start_apps();
+            let found = apps::discover_from(&list, &icons, &exclude, |a| apps::is_known(&a.name));
+            (list, found)
+        }
+    });
+    let mut scan = library::scan_all(&settings, &custom);
+    let (list, found) = discovery.join().unwrap_or_default();
+    let entries = {
+        let mut user = state.user.lock().unwrap();
+        let mut changed = apps::refresh(&list, &mut user.apps);
+        // A known app that's also a game here (a launcher added by hand, say) stays a game.
+        let games: Vec<String> = scan.games.iter().map(|g| g.name.to_lowercase()).collect();
+        let found: Vec<apps::AppEntry> = found.into_iter().filter(|a| !games.contains(&a.name.to_lowercase())).collect();
+        if !found.is_empty() {
+            log::info(&format!("apps: {} found", found.len()));
+            user.apps.extend(found);
+            changed = true;
+        }
+        if changed {
+            state.save_user(&user);
+        }
+        user.apps.clone()
+    };
+    let shown = apps::installed(&list, &entries);
+    if shown.len() < entries.len() {
+        log::info(&format!("apps: {} not installed any more", entries.len() - shown.len()));
+    }
+    let edge = apps::edge();
+    scan.games.extend(shown.iter().map(|a| apps::game_of(a, edge.as_deref())));
+    scan.asset_dirs.extend(shown.iter().filter_map(|a| a.location.as_ref().map(std::path::PathBuf::from)));
+    scan.asset_dirs.push(icons);
+    allow_assets(app, &scan.asset_dirs);
+
+    if settings.sources.steam && steam_signed_in {
+        let owned = match crate::runtime().block_on(accounts::steam_owned(app)) {
+            Ok(mut list) => {
+                log::info(&format!("steam account: {} owned games", list.len()));
+                if let Err(e) = crate::runtime().block_on(accounts::steam_achievements(app, &mut list)) {
+                    log::warn(&e);
+                }
+                state.cache.lock().unwrap().owned_steam = list.clone();
+                list
+            }
+            Err(e) => {
+                log::warn(&format!("steam account: {e}; using last known list"));
+                state.cache.lock().unwrap().owned_steam.clone()
+            }
+        };
+        accounts::merge_steam(&mut scan.games, &owned);
+        scan.games.sort_by_key(|g| library::sort_key(&g.name));
+    }
+
+    let xbox_signed_in = !state.user.lock().unwrap().accounts.xbox_refresh.is_empty();
+    if settings.sources.xbox && xbox_signed_in {
+        let titles = match crate::runtime().block_on(accounts::xbox_titles(app)) {
+            Ok(mut list) => {
+                log::info(&format!("xbox account: {} PC games in history", list.len()));
+                let installed: Vec<String> = scan.games.iter().filter(|g| g.source == "xbox").map(|g| g.source_id.clone()).collect();
+                let known = state.cache.lock().unwrap().owned_xbox.clone();
+                crate::runtime().block_on(accounts::xbox_counts(app, &mut list, &known, &installed));
+                state.cache.lock().unwrap().owned_xbox = list.clone();
+                list
+            }
+            Err(e) => {
+                log::warn(&format!("xbox account: {e}; using last known list"));
+                state.cache.lock().unwrap().owned_xbox.clone()
+            }
+        };
+        accounts::merge_xbox(&mut scan.games, &titles);
+        scan.games.sort_by_key(|g| library::sort_key(&g.name));
+    }
+
+    {
+        let mut user = state.user.lock().unwrap();
+        let t = now();
+        for g in scan.games.iter().filter(|g| g.installed) {
+            // A game the scan hides by default stays hidden until the player says otherwise.
+            user.meta.entry(g.id.clone()).or_insert_with(|| store::GameMeta { hidden: g.hidden, ..Default::default() }).added_at.get_or_insert(t);
+        }
+        state.save_user(&user);
+    }
+    let mut cache = state.cache.lock().unwrap();
+    cache.library = scan.games;
+    cache.asset_dirs = scan.asset_dirs;
+    state.save_cache(&cache);
+}
+
+/// Cached library instantly, or a fresh scan of every store when `rescan` is set.
+pub async fn get_library(app: AppHandle, rescan: bool) -> Result<Vec<Game>, String> {
+    tokio::task::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let empty = state.cache.lock().unwrap().library.is_empty();
+        if rescan || empty {
+            self::rescan(&app);
+        }
+        snapshot(&state)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Looks up art for games their store gave us none for. Returns whether anything changed.
+pub async fn resolve_art(state: &AppState) -> Result<bool, String> {
+    let (todo, key) = {
+        let cache = state.cache.lock().unwrap();
+        let user = state.user.lock().unwrap();
+        let t = now();
+        let todo: Vec<art::Lookup> = cache
+            .library
+            .iter()
+            .filter(|g| g.source != "steam" && !g.is_app())
+            .filter(|g| match cache.art.get(&g.id) {
+                Some(r) => r.art.is_empty() && t - r.at > ART_RETRY_SECS,
+                None => true,
+            })
+            .map(|g| art::Lookup { id: g.id.clone(), source: g.source.clone(), source_id: g.source_id.clone(), name: g.name.clone() })
+            .collect();
+        (todo, user.settings.steamgriddb_key.trim().to_string())
+    };
+    if todo.is_empty() {
+        return Ok(false);
+    }
+    let found = art::resolve(todo, key).await;
+    let mut cache = state.cache.lock().unwrap();
+    cache.art.extend(found);
+    state.save_cache(&cache);
+    Ok(true)
+}
+
+/// Asks Steam about the library's Steam games, and the other games that matched a Steam page:
+/// genres, and art for those the plain addresses miss. Returns whether anything changed.
+pub async fn resolve_steam_facts(state: &AppState, language: String) -> Result<bool, String> {
+    let (todo, names_stale) = {
+        let cache = state.cache.lock().unwrap();
+        let steam = cache.library.iter().filter(|g| g.source == "steam").filter_map(|g| g.steam_app_id);
+        let matched = cache.library.iter().filter_map(|g| cache.art.get(&g.id)?.steam_app_id);
+        (cache.steam_facts.missing(steam.chain(matched)), cache.steam_facts.language != language)
+    };
+    if todo.is_empty() && !names_stale {
+        return Ok(false);
+    }
+    let names = if names_stale { steam_store::genre_names(&language).await } else { None };
+    let found = if todo.is_empty() { None } else { steam_store::facts(&todo, &language).await };
+    let changed = names.is_some() || found.is_some();
+    let mut cache = state.cache.lock().unwrap();
+    if let Some(names) = names {
+        cache.steam_facts.names = names;
+        cache.steam_facts.language = language;
+    }
+    if let Some(found) = found {
+        cache.steam_facts.apps.extend(found);
+    }
+    if changed {
+        state.save_cache(&cache);
+    }
+    Ok(changed)
+}
+
+pub async fn steam_store_home(language: String) -> Result<steam_store::Home, String> {
+    steam_store::home(&language).await
+}
+
+pub async fn steam_store_page(list: String, tag: Option<u32>, start: u32, language: String) -> Result<steam_store::Page, String> {
+    steam_store::page(&list, tag, start, &language).await
+}
+
+pub async fn xbox_store_home(language: String) -> Result<Vec<xbox_store::Shelf>, String> {
+    xbox_store::home(&language).await
+}
+
+pub async fn xbox_store_page(list: String, genre: Option<String>, page: u32, language: String) -> Result<xbox_store::Page, String> {
+    xbox_store::page(&list, genre.as_deref(), page, &language).await
+}
+
+/// A game's page in the Xbox app, or the Microsoft Store without it.
+pub fn open_xbox_store(product: String) -> Result<(), String> {
+    launcher::open_external(&format!("{}{}", gamepass::install_uri(), xbox_store::checked(&product)?))
+}
+
+/// A game's page in the Steam client, or on the web without one.
+pub fn open_steam_store(appid: u32) -> Result<(), String> {
+    if library::steam_user().is_some() {
+        return launcher::open_external(&format!("steam://store/{appid}"));
+    }
+    launcher::open_external(&format!("https://store.steampowered.com/app/{appid}"))
+}
+
+/// Measures the install folders of games whose store reports no size: Xbox, GOG, Ubisoft and
+/// games added by hand. Returns whether anything changed.
+pub async fn measure_sizes(state: &AppState) -> Result<bool, String> {
+    let todo: Vec<(String, std::path::PathBuf)> = {
+        let cache = state.cache.lock().unwrap();
+        let t = now();
+        cache
+            .library
+            .iter()
+            .filter(|g| g.installed && g.size_bytes.is_none() && !g.is_app())
+            .filter_map(|g| {
+                let dir = g.install_dir.clone()?;
+                if cache.sizes.get(&dir).is_some_and(|s| t - s.at < SIZE_RETRY_SECS) {
+                    return None;
+                }
+                let root = if g.source == "custom" { library::game_root(&dir)? } else { dir.clone().into() };
+                Some((dir, root))
+            })
+            .collect()
+    };
+    if todo.is_empty() {
+        return Ok(false);
+    }
+    let measured = tokio::task::spawn_blocking(move || {
+        todo.into_iter().map(|(dir, root)| (dir, MeasuredSize { bytes: library::dir_size(&root), at: now() })).collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let mut cache = state.cache.lock().unwrap();
+    cache.sizes.extend(measured);
+    state.save_cache(&cache);
+    Ok(true)
+}
+
+/// The PC Game Pass catalog in `language` (like "en-us"), looked up again once a day.
+pub async fn gamepass_catalog(state: &AppState, language: String) -> Result<Vec<Game>, String> {
+    let cached = {
+        let cache = state.cache.lock().unwrap();
+        let c = &cache.gamepass;
+        (c.format == gamepass::FORMAT && c.language == language && now() - c.at < gamepass::FRESH_SECS).then(|| c.games.clone())
+    };
+    if let Some(games) = cached {
+        return Ok(games);
+    }
+    match gamepass::fetch(&language).await {
+        Ok(catalog) => {
+            let games = catalog.games.clone();
+            let mut cache = state.cache.lock().unwrap();
+            cache.gamepass = catalog;
+            state.save_cache(&cache);
+            Ok(games)
+        }
+        Err(e) => {
+            log::warn(&e);
+            // Yesterday's catalog beats none.
+            let stale = state.cache.lock().unwrap().gamepass.games.clone();
+            if stale.is_empty() { Err(e) } else { Ok(stale) }
+        }
+    }
+}
+
+/// Installs a game: Steam's through Steam's own dialog, with progress as "install-progress" events.
+/// A Store game opens on its page in the Xbox app (or the Microsoft Store), which installs it: this
+/// build never drives Windows' installer itself.
+pub fn install_game(app: AppHandle, state: &AppState, id: String, chosen: Option<Vec<String>>) -> Result<(), String> {
+    if id.starts_with(steam_install::ID_PREFIX) {
+        return steam_install::start(&app, &id);
+    }
+    let product = chosen.and_then(|c| c.into_iter().next()).or_else(|| store_product(&state, &id)).ok_or("Only Steam and Store games install from Mantel")?;
+    launcher::open_external(&format!("{}{}", gamepass::install_uri(), xbox_store::checked(&product)?))
+}
+
+pub fn cancel_install(id: String) -> Result<(), String> {
+    if id.starts_with(steam_install::ID_PREFIX) {
+        return steam_install::cancel(&id);
+    }
+    Err("Cancel it in the Xbox app or the Microsoft Store".into())
+}
+
+/// Installs under way, for a UI that just (re)loaded.
+pub fn installs() -> Vec<install::Progress> {
+    install::active()
+}
+
+pub async fn uninstall_game(app: AppHandle, state: &AppState, id: String) -> Result<(), String> {
+    if state.running.lock().unwrap().iter().any(|r| r.id == id) {
+        return Err("Close the game first".into());
+    }
+    let game = state.cache.lock().unwrap().library.iter().find(|g| g.id == id && g.installed).cloned().ok_or("Game not found — refresh the library")?;
+    tokio::task::spawn_blocking(move || uninstall::start(&app, &game)).await.map_err(|e| e.to_string())?
+}
+
+/// Whether a Store game is on the player's account: asking needs Windows' installer, which this
+/// build doesn't use, so the answer is always "can't say" and the Store tells instead.
+pub fn install_access(_id: String) -> Option<bool> {
+    None
+}
+
+/// A game's editions on sale, from any card of it. `id` is a store entry's, or a played game's.
+pub async fn xbox_editions(state: &AppState, id: String, language: String) -> Result<Option<xbox_store::Editions>, String> {
+    let Some(product) = store_product(&state, &id) else { return Ok(None) };
+    Ok(xbox_store::editions(xbox_store::checked(&product)?, &language).await)
+}
+
+/// Whether an edition is on the account: unknown here, as with install_access.
+pub fn edition_on_account(_id: String, _parts: Vec<String>) -> Option<bool> {
+    None
+}
+
+pub async fn xbox_store_search(query: String, language: String) -> Result<Vec<xbox_store::SearchHit>, String> {
+    xbox_store::search(&query, &language).await
+}
+
+pub async fn steam_store_search(query: String, language: String) -> Result<Vec<Game>, String> {
+    steam_store::search(&query, &language).await
+}
+
+/// Steam installs under way; Store installs are the Xbox app's business in this build.
+pub fn installs_under_way() -> Vec<String> {
+    steam_install::under_way()
+}
+
+/// The Store product behind a game: in the id of a catalog or store entry, and in the play history
+/// for a played game. Other games don't install through Windows.
+pub fn store_product(state: &AppState, id: &str) -> Option<String> {
+    if let Some(product) = id.strip_prefix(gamepass::ID_PREFIX).or_else(|| id.strip_prefix(xbox_store::ID_PREFIX)) {
+        return Some(product.to_string());
+    }
+    let pfn = id.strip_prefix("xbox:")?;
+    state.cache.lock().unwrap().owned_xbox.iter().find(|t| t.pfn.eq_ignore_ascii_case(pfn))?.product_id.clone()
+}
+
+/// A library game, or one from the Game Pass catalog.
+pub fn find_game(state: &AppState, id: &str) -> Option<Game> {
+    let cache = state.cache.lock().unwrap();
+    cache.library.iter().chain(&cache.gamepass.games).find(|g| g.id == id).cloned()
+}
+
+/// The game page's store details; `language` is Steam's name for it, like "french".
+pub async fn get_details(state: &AppState, id: String, language: Option<String>) -> Result<Option<Value>, String> {
+    let language = language.unwrap_or_else(|| "english".into());
+    // An Xbox game keeps its Store page once installed, so its trailers and text don't change.
+    // Steam's stands in below for what the Store has no page for.
+    let id = match id.strip_prefix("xbox:") {
+        Some(pfn) => gamepass::entry_for_package(&state.cache.lock().unwrap().gamepass, pfn).map_or_else(|| id.clone(), |g| g.id.clone()),
+        None => id,
+    };
+    if id.starts_with("xbox:") {
+        if let Some(product) = store_product(&state, &id).filter(|p| xbox_store::checked(p).is_ok()) {
+            let catalog_language = state.cache.lock().unwrap().gamepass.language.clone();
+            let key = state.user.lock().unwrap().settings.steamgriddb_key.trim().to_string();
+            if let Some(page) = xbox_store::details(&product, if catalog_language.is_empty() { "en-us" } else { &catalog_language }, &key).await {
+                return Ok(Some(page));
+            }
+        }
+    }
+    if let Some(product) = id.strip_prefix(xbox_store::ID_PREFIX) {
+        let catalog_language = state.cache.lock().unwrap().gamepass.language.clone();
+        let key = state.user.lock().unwrap().settings.steamgriddb_key.trim().to_string();
+        return Ok(xbox_store::details(xbox_store::checked(product)?, if catalog_language.is_empty() { "en-us" } else { &catalog_language }, &key).await);
+    }
+    if id.starts_with(gamepass::ID_PREFIX) {
+        let (details, name, hero) = {
+            let cache = state.cache.lock().unwrap();
+            let game = cache.gamepass.games.iter().find(|g| g.id == id);
+            (cache.gamepass.details.get(&id).cloned(), game.map(|g| g.name.clone()).unwrap_or_default(), game.and_then(|g| g.art.hero.first().cloned()))
+        };
+        let Some(mut d) = details else { return Ok(None) };
+        // The trailer and logo are looked up on first view, then kept with the catalog.
+        if d.get("trailer").is_none() || d.get("logo").is_none() {
+            let key = state.user.lock().unwrap().settings.steamgriddb_key.trim().to_string();
+            let (trailer, logo) = futures::join!(gamepass::pick_trailer(&d, &name), art::find_logo(&name, &key));
+            d["videos"] = gamepass::playable_videos(&d, trailer.as_deref(), hero.as_deref()).await.into();
+            d["trailer"] = trailer.into();
+            d["logo"] = logo.clone().into();
+            let mut cache = state.cache.lock().unwrap();
+            if let Some(game) = cache.gamepass.games.iter_mut().find(|g| g.id == id) {
+                game.art.logo = logo;
+            }
+            cache.gamepass.details.insert(id, d.clone());
+            state.save_cache(&cache);
+        }
+        return Ok(Some(d));
+    }
+    let appid = snapshot(&state).into_iter().find(|g| g.id == id).and_then(|g| g.steam_app_id);
+    // A game off the store's lists isn't kept: browsing shouldn't grow the cache.
+    let Some(appid) = appid else {
+        let Some(appid) = id.strip_prefix(steam_install::ID_PREFIX).and_then(|n| n.parse().ok()) else { return Ok(None) };
+        return Ok(art::steam_details(appid, &language).await);
+    };
+    let cached = state.cache.lock().unwrap().details.get(&appid).cloned();
+    // Details cached before trailers existed lack the key and are fetched again. Steam now and
+    // then answers without the trailers, so a missing one is checked again once per run.
+    static RECHECKED: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+    let fresh = |d: &&Value| d.get("language").and_then(Value::as_str).unwrap_or("english") == language && d.get("videos").is_some() && match d.get("trailer") {
+        None => false,
+        Some(Value::Null) => {
+            let mut rechecked = RECHECKED.lock().unwrap();
+            let seen = rechecked.contains(&appid);
+            if !seen {
+                rechecked.push(appid);
+            }
+            seen
+        }
+        Some(_) => true,
+    };
+    if let Some(hit) = cached.as_ref().filter(fresh) {
+        return Ok(Some(hit.clone()));
+    }
+    let details = art::steam_details(appid, &language).await;
+    if let Some(d) = &details {
+        let mut cache = state.cache.lock().unwrap();
+        cache.details.insert(appid, d.clone());
+        state.save_cache(&cache);
+    }
+    Ok(details.or(cached))
+}
+
+/// The game's achievements with the player's progress, from the store account it came from.
+/// Xbox titles that report no count get it from the list.
+pub async fn get_achievements(app: AppHandle, state: &AppState, id: String) -> Result<Vec<model::Achievement>, String> {
+    let game = snapshot(&state).into_iter().find(|g| g.id == id).ok_or("Game not found")?;
+    match game.source.as_str() {
+        "steam" => accounts::steam_achievement_list(&app, game.source_id.parse().map_err(|_| "Unknown Steam app")?).await,
+        "xbox" => {
+            let title = state.cache.lock().unwrap().owned_xbox.iter().find(|t| t.pfn.eq_ignore_ascii_case(&game.source_id)).map(|t| t.title_id.clone());
+            let title = title.filter(|t| !t.is_empty()).ok_or("Xbox Live has no achievements for this game")?;
+            let list = accounts::xbox_achievement_list(&app, &title).await?;
+            let mut cache = state.cache.lock().unwrap();
+            let (unlocked, total) = (list.iter().filter(|a| a.unlocked).count() as u32, list.len() as u32);
+            let fill = |a: &mut Option<model::Achievements>| {
+                if let Some(a) = a.as_mut() {
+                    a.count(unlocked, total);
+                }
+            };
+            if let Some(t) = cache.owned_xbox.iter_mut().find(|t| t.title_id == title) {
+                fill(&mut t.achievements);
+            }
+            if let Some(g) = cache.library.iter_mut().find(|g| g.id == id) {
+                fill(&mut g.achievements);
+            }
+            state.save_cache(&cache);
+            Ok(list)
+        }
+        _ => Err("Achievements come from Steam and Xbox accounts".into()),
+    }
+}
+
+pub fn set_flag(state: &AppState, id: String, flag: String, value: bool) -> Result<(), String> {
+    let mut user = state.user.lock().unwrap();
+    let meta = user.meta.entry(id).or_default();
+    match flag.as_str() {
+        "favorite" => meta.favorite = value,
+        "hidden" => meta.hidden = value,
+        other => return Err(format!("unknown flag {other}")),
+    }
+    state.save_user(&user);
+    Ok(())
+}
+
+pub fn get_settings(state: &AppState) -> Settings {
+    state.user.lock().unwrap().settings.clone()
+}
+
+pub fn save_settings(state: &AppState, settings: Settings) {
+    let new_key = state.user.lock().unwrap().settings.steamgriddb_key != settings.steamgriddb_key;
+    if new_key {
+        // Art found without SteamGridDB, or with another key, is looked up again.
+        let mut cache = state.cache.lock().unwrap();
+        cache.art.clear();
+        for details in cache.gamepass.details.values_mut() {
+            if let Some(details) = details.as_object_mut() {
+                details.remove("logo");
+            }
+        }
+        state.save_cache(&cache);
+    }
+    let mut user = state.user.lock().unwrap();
+    user.settings = settings;
+    state.save_user(&user);
+}
+
+/// Adds an exe, shortcut, .url or batch file. Shortcuts are launched as-is (keeping their
+/// arguments) but tracked through the exe they point at; exes get their product name.
+pub async fn add_custom_game(app: AppHandle, path: String, name: Option<String>, target: Option<String>) -> Result<Vec<Game>, String> {
+    let state = app.state::<AppState>();
+    if state.user.lock().unwrap().custom.iter().any(|c| c.path.eq_ignore_ascii_case(&path)) {
+        return Err("That one is already in your library".into());
+    }
+    let file = std::path::Path::new(&path);
+    let stem = file.file_stem().map(|s| s.to_string_lossy().to_string()).ok_or("bad path")?;
+    let ext = file.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let (name, target) = {
+        let path = path.clone();
+        tokio::task::spawn_blocking(move || {
+            let target = target.or_else(|| (ext == "lnk").then(|| pick::shortcut_target(&path)).flatten());
+            let name = name.or_else(|| (ext == "exe").then(|| pick::product_name(&path)).flatten()).unwrap_or(stem);
+            (name, target)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    };
+    let custom = CustomGame { id: format!("{:x}", now()), name, path: path.clone(), args: Vec::new(), target };
+    let game = library::custom_game(&custom);
+    if let Some(dir) = game.install_dir.clone() {
+        allow_assets(&app, &[dir.into()]);
+    }
+    log::info(&format!("custom game added: {} ({})", custom.name, custom.path));
+    {
+        let mut user = state.user.lock().unwrap();
+        user.meta.entry(game.id.clone()).or_default().added_at = Some(now());
+        user.custom.push(custom);
+        state.save_user(&user);
+    }
+    {
+        let mut cache = state.cache.lock().unwrap();
+        cache.library.push(game);
+        cache.library.sort_by_key(|g| library::sort_key(&g.name));
+        state.save_cache(&cache);
+    }
+    Ok(snapshot(&state))
+}
+
+pub fn rename_custom_game(state: &AppState, id: String, name: String) -> Result<Vec<Game>, String> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("The name can't be empty".into());
+    }
+    {
+        let mut user = state.user.lock().unwrap();
+        let custom = user.custom.iter_mut().find(|c| format!("custom:{}", c.id) == id).ok_or("Only games you added can be renamed")?;
+        custom.name = name.clone();
+        state.save_user(&user);
+    }
+    {
+        let mut cache = state.cache.lock().unwrap();
+        if let Some(g) = cache.library.iter_mut().find(|g| g.id == id) {
+            g.name = name;
+        }
+        // New name, new artwork lookup.
+        cache.art.remove(&id);
+        cache.library.sort_by_key(|g| library::sort_key(&g.name));
+        state.save_cache(&cache);
+    }
+    Ok(snapshot(&state))
+}
+
+pub async fn list_dir(path: Option<String>, images: Option<bool>) -> Result<pick::Listing, String> {
+    tokio::task::spawn_blocking(move || pick::list_dir(path.as_deref(), images.unwrap_or(false))).await.map_err(|e| e.to_string())?
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArtChoices {
+    /// The image picked before, if any.
+    picked: Option<String>,
+    options: Vec<art::Choice>,
+    /// Whether a SteamGridDB key is set; without one there's nothing to choose from.
+    connected: bool,
+}
+
+/// SteamGridDB's covers, backgrounds or logos for a game (`kind`), to pick one from.
+pub async fn art_choices(state: &AppState, id: String, kind: String) -> Result<ArtChoices, String> {
+    let game = snapshot(&state).into_iter().find(|g| g.id == id).ok_or("Game not found")?;
+    let (key, picked) = {
+        let user = state.user.lock().unwrap();
+        let picked = user.meta.get(&id).and_then(|m| m.art.slot(&kind)).and_then(|s| s.first().cloned());
+        (user.settings.steamgriddb_key.trim().to_string(), picked)
+    };
+    if key.is_empty() {
+        return Ok(ArtChoices { picked, options: Vec::new(), connected: false });
+    }
+    let options = art::choices(&key, &kind, game.steam_app_id, &game.name).await?;
+    Ok(ArtChoices { picked, options, connected: true })
+}
+
+/// Makes `src` the game's cover, background or logo: an https URL, or an image file, which is
+/// copied so it survives the original moving. None goes back to the stores' art.
+pub fn set_art(state: &AppState, id: String, kind: String, src: Option<String>) -> Result<Vec<Game>, String> {
+    let dir = state.art_dir();
+    let src = match src {
+        Some(url) if url.starts_with("https://") => Some(url),
+        Some(file) => Some(copy_art(&dir, &id, &kind, &file)?),
+        None => None,
+    };
+    {
+        let mut user = state.user.lock().unwrap();
+        let slot = user.meta.entry(id).or_default().art.slot_mut(&kind).ok_or("Unknown kind of art")?;
+        // A copy nothing points at any more is just clutter.
+        for old in slot.drain(..).filter(|old| std::path::Path::new(old).starts_with(&dir)) {
+            let _ = std::fs::remove_file(old);
+        }
+        slot.extend(src);
+        state.save_user(&user);
+    }
+    Ok(snapshot(&state))
+}
+
+pub fn copy_art(dir: &std::path::Path, id: &str, kind: &str, file: &str) -> Result<String, String> {
+    let from = std::path::Path::new(file);
+    let ext = from.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    if !pick::IMAGES.contains(&ext.as_str()) {
+        return Err("Pick a PNG, JPEG or WebP image".into());
+    }
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    // A new name each time, so the WebView doesn't show a cached earlier pick.
+    let safe: String = id.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+    let to = dir.join(format!("{safe}-{kind}-{}.{ext}", now()));
+    std::fs::copy(from, &to).map_err(|e| format!("Couldn't copy {file}: {e}"))?;
+    Ok(to.to_string_lossy().to_string())
+}
+
+/// Shortcuts on the desktop and in the Start menu that aren't in the library yet.
+pub async fn app_suggestions(state: &AppState) -> Result<Vec<pick::Suggestion>, String> {
+    let known: Vec<String> = {
+        let cache = state.cache.lock().unwrap();
+        let user = state.user.lock().unwrap();
+        cache
+            .library
+            .iter()
+            .filter_map(|g| g.install_dir.clone())
+            .chain(user.custom.iter().map(|c| c.path.clone()))
+            .collect()
+    };
+    tokio::task::spawn_blocking(move || pick::suggestions(&known)).await.map_err(|e| e.to_string())
+}
+
+/// Apps "Add an app" can offer: the Start menu's, games and apps on the tab left out, then
+/// sites. Kept, so adding takes an app from this list and nothing else.
+pub async fn app_choices(app: AppHandle) -> Result<Vec<apps::AppEntry>, String> {
+    tokio::task::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let exclude = {
+            let user = state.user.lock().unwrap();
+            let cache = state.cache.lock().unwrap();
+            let games = cache.library.iter().filter(|g| !g.is_app());
+            apps::Exclude {
+                taken: user.apps.iter().map(|a| a.target.clone()).collect(),
+                game_dirs: games.clone().filter_map(|g| g.install_dir.clone()).collect(),
+                game_names: games.map(|g| g.name.clone()).collect(),
+            }
+        };
+        let icons = state.icons_dir();
+        let mut found = apps::discover(&icons, &exclude, |_| true);
+        found.extend(
+            apps::SITES
+                .iter()
+                .filter(|(_, url)| !exclude.taken.iter().any(|t| t == url))
+                .map(|(name, url)| apps::AppEntry { name: name.to_string(), kind: "site".into(), target: url.to_string(), ..Default::default() }),
+        );
+        let mut dirs: Vec<std::path::PathBuf> = found.iter().filter_map(|a| a.location.as_ref().map(Into::into)).collect();
+        dirs.push(icons);
+        allow_assets(&app, &dirs);
+        *state.app_choices.lock().unwrap() = found.clone();
+        found
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Puts an app from the last "Add an app" list on the Apps tab. A site gets its icon from the
+/// site itself.
+pub async fn add_app(app: AppHandle, target: String) -> Result<Vec<Game>, String> {
+    let state = app.state::<AppState>();
+    let mut entry = state.app_choices.lock().unwrap().iter().find(|c| c.target == target).cloned().ok_or("That app isn't on the list any more")?;
+    if entry.kind == "site" && entry.icon.is_none() {
+        entry.icon = apps::fetch_site_icon(&entry.target, &state.icons_dir(), &entry.id()).await;
+    }
+    let game = apps::game_of(&entry, apps::edge().as_deref());
+    if let Some(location) = &entry.location {
+        allow_assets(&app, &[location.into()]);
+    }
+    log::info(&format!("app added: {} ({})", entry.name, entry.kind));
+    {
+        let mut user = state.user.lock().unwrap();
+        user.dismissed_apps.retain(|t| *t != entry.target);
+        user.meta.entry(game.id.clone()).or_default().added_at = Some(now());
+        if !user.apps.iter().any(|a| a.target == entry.target) {
+            user.apps.push(entry);
+        }
+        state.save_user(&user);
+    }
+    {
+        let mut cache = state.cache.lock().unwrap();
+        cache.library.retain(|g| g.id != game.id);
+        cache.library.push(game);
+        state.save_cache(&cache);
+    }
+    Ok(snapshot(&state))
+}
+
+/// Puts a file the player picked on the Apps tab: an exe, a shortcut, a .url or a batch file.
+/// Like a game added by hand, an exe gets its product name and a shortcut is followed through
+/// the program it points at; the icon comes from that program.
+pub async fn add_app_file(app: AppHandle, path: String) -> Result<Vec<Game>, String> {
+    let file = std::path::Path::new(&path);
+    let ext = file.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    if !file.is_file() || !["exe", "lnk", "url", "bat", "cmd"].contains(&ext.as_str()) {
+        return Err("Pick a program, a shortcut or a batch file".into());
+    }
+    let state = app.state::<AppState>();
+    if state.user.lock().unwrap().apps.iter().any(|a| a.target.eq_ignore_ascii_case(&path)) {
+        return Err("That one is already in your apps".into());
+    }
+    let stem = file.file_stem().map(|s| s.to_string_lossy().to_string()).ok_or("bad path")?;
+    let icons = state.icons_dir();
+    let mut entry = {
+        let path = path.clone();
+        tokio::task::spawn_blocking(move || {
+            let exe = if ext == "exe" { Some(path.clone()) } else if ext == "lnk" { pick::shortcut_target(&path).filter(|t| t.to_lowercase().ends_with(".exe")) } else { None };
+            let name = exe.as_deref().filter(|_| ext == "exe").and_then(pick::product_name).unwrap_or(stem);
+            let mut entry = apps::from_file(&path, name, exe);
+            let out = icons.join(format!("{}.png", entry.id()));
+            let source = entry.exe.clone().unwrap_or_else(|| path.clone());
+            if icons::extract(&source, 0, &out) {
+                entry.icon = Some(out.to_string_lossy().to_string());
+            }
+            entry
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    };
+    entry.name = entry.name.trim().to_string();
+    let game = apps::game_of(&entry, None);
+    log::info(&format!("app added from a file: {}", entry.name));
+    {
+        let mut user = state.user.lock().unwrap();
+        user.meta.entry(game.id.clone()).or_default().added_at = Some(now());
+        user.apps.push(entry);
+        state.save_user(&user);
+    }
+    {
+        let mut cache = state.cache.lock().unwrap();
+        cache.library.retain(|g| g.id != game.id);
+        cache.library.push(game);
+        state.save_cache(&cache);
+    }
+    Ok(snapshot(&state))
+}
+
+/// Takes an app off the Apps tab for good: a known one doesn't come back by itself.
+pub fn remove_app(state: &AppState, id: String) -> Vec<Game> {
+    {
+        let mut user = state.user.lock().unwrap();
+        let gone: Vec<String> = user.apps.iter().filter(|a| format!("app:{}", a.id()) == id).map(|a| a.target.clone()).collect();
+        user.apps.retain(|a| format!("app:{}", a.id()) != id);
+        user.dismissed_apps.extend(gone);
+        state.save_user(&user);
+    }
+    {
+        let mut cache = state.cache.lock().unwrap();
+        cache.library.retain(|g| g.id != id);
+        state.save_cache(&cache);
+    }
+    snapshot(&state)
+}
+
+pub fn remove_custom_game(state: &AppState, id: String) -> Vec<Game> {
+    {
+        let mut user = state.user.lock().unwrap();
+        user.custom.retain(|c| format!("custom:{}", c.id) != id);
+        state.save_user(&user);
+    }
+    {
+        let mut cache = state.cache.lock().unwrap();
+        cache.library.retain(|g| g.id != id);
+        state.save_cache(&cache);
+    }
+    snapshot(&state)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SteamStatus {
+    /// Account signed in to the Steam client on this machine.
+    user: Option<String>,
+    connected: bool,
+    owned: usize,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountsStatus {
+    steam: SteamStatus,
+    xbox_gamertag: Option<String>,
+}
+
+pub fn accounts_snapshot(state: &AppState) -> AccountsStatus {
+    let user = state.user.lock().unwrap();
+    let owned = state.cache.lock().unwrap().owned_steam.len();
+    AccountsStatus {
+        steam: SteamStatus {
+            user: library::steam_user().map(|(_, name)| name),
+            connected: user.accounts.steam_signed_in,
+            owned,
+        },
+        xbox_gamertag: Some(user.accounts.xbox_gamertag.clone()).filter(|g| !g.is_empty()),
+    }
+}
+
+pub fn accounts_status(state: &AppState) -> AccountsStatus {
+    accounts_snapshot(&state)
+}
+
+/// Steam's own sign-in page in a Mantel window; resolves once the account's games are in.
+pub async fn steam_sign_in(app: AppHandle, state: &AppState) -> Result<AccountsStatus, String> {
+    accounts::steam_sign_in(&app).await?;
+    let owned = accounts::steam_owned(&app).await?;
+    {
+        let mut cache = state.cache.lock().unwrap();
+        cache.owned_steam = owned;
+        state.save_cache(&cache);
+    }
+    Ok(accounts_snapshot(&state))
+}
+
+/// Microsoft's sign-in page in a Mantel window; resolves once signed in to Xbox Live.
+pub async fn xbox_sign_in(app: AppHandle, state: &AppState) -> Result<AccountsStatus, String> {
+    accounts::xbox_sign_in(&app).await?;
+    Ok(accounts_snapshot(&state))
+}
+
+pub async fn disconnect_account(app: AppHandle, state: &AppState, service: String) -> Result<AccountsStatus, String> {
+    match service.as_str() {
+        "steam" => accounts::steam_sign_out(&app).await,
+        "xbox" => {
+            {
+                let mut user = state.user.lock().unwrap();
+                user.accounts.xbox_refresh.clear();
+                user.accounts.xbox_gamertag.clear();
+                user.accounts.xbox_session = Default::default();
+                state.save_user(&user);
+            }
+            let mut cache = state.cache.lock().unwrap();
+            cache.owned_xbox.clear();
+            cache.library.retain(|g| g.installed || g.source != "xbox");
+            state.save_cache(&cache);
+        }
+        _ => {}
+    }
+    if service == "steam" {
+        let mut cache = state.cache.lock().unwrap();
+        cache.owned_steam.clear();
+        cache.library.retain(|g| g.installed || g.source != "steam");
+        state.save_cache(&cache);
+    }
+    Ok(accounts_snapshot(&state))
+}
+
+/// Pausing and resuming are Steam's to do.
+pub fn open_steam_downloads() -> Result<(), String> {
+    launcher::open_external("steam://open/downloads")
+}
+
+/// Opens a web page in the default browser; only https, so the UI can't run programs.
+pub fn open_url(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") {
+        return Err("Only https links can be opened".into());
+    }
+    launcher::open_external(&url)
+}
+
+pub fn launch_game(app: AppHandle, state: &AppState, id: String) -> Result<(), String> {
+    let game = find_game(&state, &id).ok_or("Game not found — refresh the library")?;
+    launcher::launch(&app, &game)
+}
+
+pub async fn switch_to_game(app: AppHandle, id: String) -> bool {
+    tokio::task::spawn_blocking(move || launcher::switch_to(&app, &id)).await.unwrap_or(false)
+}
+
+pub async fn close_game(app: AppHandle, id: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || launcher::close(&app, &id)).await.map_err(|e| e.to_string())?
+}
+
+pub fn running_games(state: &AppState) -> Vec<launcher::Running> {
+    state.running.lock().unwrap().clone()
+}
+
+/// Whether an app's window is in front, which keeps the pad away from Mantel behind it.
+pub fn app_in_front() -> bool {
+    launcher::app_in_front()
+}
+
+pub fn open_game_folder(state: &AppState, id: String) -> Result<(), String> {
+    let dir = state.cache.lock().unwrap().library.iter().find(|g| g.id == id).and_then(|g| g.install_dir.clone());
+    launcher::open_folder(&dir.ok_or("Install folder unknown")?)
+}
+
+/// Lets the UI report what only it can see, such as artwork that failed to load.
+pub fn client_log(level: String, message: String) {
+    log::write(&level.to_uppercase(), &format!("[ui] {message}"));
+}
+
+pub fn power_status() -> system::Power {
+    system::power()
+}
+
+pub async fn quick_status() -> system::Quick {
+    tokio::task::spawn_blocking(system::quick).await.unwrap_or_default()
+}
+
+pub async fn set_volume(level: u8) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || system::set_volume(level)).await.map_err(|e| e.to_string())?
+}
+
+pub async fn set_muted(muted: bool) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || system::set_muted(muted)).await.map_err(|e| e.to_string())?
+}
+
+pub async fn set_brightness(level: u8) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || system::set_brightness(level)).await.map_err(|e| e.to_string())?
+}
+
+pub fn full_screen_mode() -> fse::Mode {
+    fse::mode()
+}
+
+pub fn power_action(app: AppHandle, action: String) -> Result<(), String> {
+    system::action(&app, &action)
+}
+
