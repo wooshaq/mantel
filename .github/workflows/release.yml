@@ -2,9 +2,9 @@
 # draft release. Publishing the draft is what makes installed copies update.
 name: Release
 
+# wooshaq fork: releases are built and uploaded by hand, so a tag push doesn't start this.
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write

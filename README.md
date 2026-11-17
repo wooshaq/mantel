@@ -52,7 +52,7 @@ TV PC.
 ## Install
 
 Download `Mantel_x.y.z_x64-setup.exe` from
-[Releases](https://github.com/jarto666/mantel/releases) and run it. On first start, a short
+[Releases](https://github.com/wooshaq/mantel/releases) and run it. On first start, a short
 setup asks for your language, signs you in to Steam and Xbox if you like, and can make Mantel
 start with Windows. Settings → System →
 *Run setup again* brings it back. This build (wooshaq) has no auto-updater (it never downloads or installs anything by itself) and
