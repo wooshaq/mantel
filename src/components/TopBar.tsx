@@ -16,7 +16,7 @@ const TABS: [View, string][] = [
 
 /** A store gets a tab once there's something to browse: its games, or for Xbox the catalog. */
 function hasTab(s: ReturnType<typeof useStore.getState>, view: View) {
-  if (view === "steam") return !!s.settings?.sources.steam && (!!s.accounts?.steam.user || !!s.accounts?.steam.connected || s.games.some((g) => g.source === "steam"));
+  if (view === "steam") return !!s.settings?.sources.steam && (!!s.accounts?.steam.user || s.games.some((g) => g.source === "steam"));
   if (view === "gamepass") return !!s.settings?.sources.xbox && (s.catalog.length > 0 || s.games.some((g) => g.source === "xbox" && !g.hidden));
   return true;
 }

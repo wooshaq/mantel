@@ -80,11 +80,6 @@ export interface Api {
   on(event: GameEvent, cb: (payload: unknown) => void): () => void;
   log(level: "info" | "warn" | "error", message: string): void;
   accountsStatus(): Promise<AccountsStatus>;
-  /** Opens Steam's sign-in page; resolves once signed in and the account's games are in. */
-  steamSignIn(): Promise<AccountsStatus>;
-  /** Opens Microsoft's sign-in page; resolves once signed in to Xbox Live. */
-  xboxSignIn(): Promise<AccountsStatus>;
-  disconnectAccount(service: "steam" | "xbox"): Promise<AccountsStatus>;
   openUrl(url: string): Promise<void>;
   openSteamDownloads(): Promise<void>;
   openSteamStore(appid: number): Promise<void>;
@@ -168,9 +163,6 @@ const tauriApi: Api = {
     call("client_log", { level, message }).catch(() => {});
   },
   accountsStatus: () => call("accounts_status"),
-  steamSignIn: () => call("steam_sign_in"),
-  xboxSignIn: () => call("xbox_sign_in"),
-  disconnectAccount: (service) => call("disconnect_account", { service }),
   openUrl: (url) => call("open_url", { url }),
   openSteamDownloads: () => call("open_steam_downloads"),
   openSteamStore: (appid) => call("open_steam_store", { appid }),

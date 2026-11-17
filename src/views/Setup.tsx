@@ -2,7 +2,6 @@ import { AnimatePresence, motion, type Variants } from "motion/react";
 import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import logo from "../../src-tauri/icons/source.svg";
 import { api } from "../api";
-import { AccountFlow, steamCopy, xboxCopy } from "../components/AccountFlow";
 import { Glyph, SourceIcon } from "../components/Glyph";
 import { useHints, type Hint } from "../components/Hints";
 import { Img } from "../components/Img";
@@ -22,10 +21,10 @@ const LANGUAGE_ORDER = ["en", "de", "es", "fr", "pl", "ru"];
 const nativeName = (id: string) => LANGUAGES.find((l) => l.id === id)?.label ?? id;
 
 /** Every store Mantel reads, whether or not this PC has games from it. */
-const STORES: { id: Source; name: string; tag?: string; account?: "steam" | "xbox" }[] = [
-  { id: "steam", name: "Steam", account: "steam" },
-  // Game Pass is half of why people use Xbox on a PC, and it installs right in Mantel.
-  { id: "xbox", name: "Xbox", tag: "Game Pass", account: "xbox" },
+const STORES: { id: Source; name: string; tag?: string }[] = [
+  { id: "steam", name: "Steam" },
+  // Game Pass is half of why people use Xbox on a PC.
+  { id: "xbox", name: "Xbox", tag: "Game Pass" },
   { id: "epic", name: "Epic Games" },
   { id: "gog", name: "GOG" },
   { id: "ubisoft", name: "Ubisoft Connect" },
@@ -105,9 +104,7 @@ function SetupScreen({ step }: { step: number }) {
   const settings = useStore((s) => s.settings);
   const games = useStore((s) => s.games);
   const scanning = useStore((s) => s.scanning);
-  const accounts = useStore((s) => s.accounts);
   const [autostart, setAutostart] = useState<boolean | null>(null);
-  const [flow, setFlow] = useState<"steam" | "xbox" | null>(null);
   /** The step is clearing before a new language remounts everything. */
   const [leaving, setLeaving] = useState(false);
   /** A was pressed on the last step: the launch plays, then Home. */
@@ -128,7 +125,6 @@ function SetupScreen({ step }: { step: number }) {
   useEffect(() => {
     shown = true;
     enterAfterRemount = false;
-    api.accountsStatus().then((accounts) => useStore.setState({ accounts }), () => {});
     api.getAutostart().then(setAutostart, () => setAutostart(false));
   }, []);
   useEffect(() => {
@@ -137,8 +133,6 @@ function SetupScreen({ step }: { step: number }) {
   }, [step]);
 
   const next = () => go(step + 1);
-  const steam = accounts?.steam;
-  const xboxTag = accounts?.xboxGamertag ?? null;
 
   // ---- What can be chosen on this step, in reading order.
   let choices: Choice[] = [];
@@ -166,11 +160,7 @@ function SetupScreen({ step }: { step: number }) {
       },
     }));
   } else if (id === "games") {
-    choices = [
-      { id: "steam", run: () => setFlow("steam") },
-      { id: "xbox", run: () => setFlow("xbox") },
-      { id: "next", run: next },
-    ];
+    choices = [{ id: "next", run: next }];
   } else if (id === "start") {
     choices = [
           {
@@ -286,40 +276,23 @@ function SetupScreen({ step }: { step: number }) {
         </motion.div>
         <motion.p className="setup-intro" variants={piece}>
           {n > 0 || scanning
-            ? t("Mantel finds them in every store by itself. Connect Steam or Xbox to sync the games you own but haven't installed, and playtime from all your devices.")
-            : t("Games you install with Steam, Xbox, Epic, GOG or Ubisoft Connect show up here by themselves. Connecting Steam or Xbox syncs the games you own right away.")}
+            ? t("Mantel finds them in every store by itself, without signing in anywhere.")
+            : t("Games you install with Steam, Xbox, Epic, GOG or Ubisoft Connect show up here by themselves.")}
         </motion.p>
         <motion.ul className="setup-stores" variants={groupMotion}>
           {/* Games added by hand count in the total above, so they get a line when there are any. */}
           {[...STORES, ...(installed.some((g) => g.source === "custom") ? [{ id: "custom" as const, name: t("Added by you") }] : [])].map((store) => {
             const own = installed.filter((g) => g.source === store.id);
             const covers = own.filter(hasCover).sort(byRecent).slice(0, 3);
-            const signedIn = store.account === "steam" ? !!steam?.connected : store.account === "xbox" ? !!xboxTag : false;
-            const f = store.account ? focus(store.account) : null;
             const note =
-              store.account === "steam"
-                ? signedIn
-                  ? steam?.user
-                    ? t("Signed in as {user}", { user: steam.user })
-                    : t("Connected")
-                  : t("Syncs games you own and playtime")
-                : store.account === "xbox"
-                  ? signedIn
-                    ? t("Browse and install Game Pass · Signed in as {gamertag}", { gamertag: xboxTag ?? "" })
-                    : t("Browse and install Game Pass · Syncs play history and minutes")
+              store.id === "steam"
+                ? t("Achievements from your public profile")
+                : store.id === "xbox"
+                  ? t("Browse the Game Pass catalog")
                   : store.id === "custom"
                     ? t("Games from outside the stores, added in Settings")
-                    : // Installed games already show; what's missing is the account, as for Steam and Xbox.
-                      t("Account sync is on the way");
-            const state = store.account ? (
-              signedIn ? (
-                <span className="setup-state is-good">{t("Connected")}</span>
-              ) : (
-                <span className="setup-state is-do">{t("Connect")}</span>
-              )
-            ) : (
-              <span className={`setup-state ${own.length ? "is-good" : ""}`}>{own.length ? t("On this PC") : t("Not found")}</span>
-            );
+                    : "";
+            const state = <span className={`setup-state ${own.length ? "is-good" : ""}`}>{own.length ? t("On this PC") : t("Not found")}</span>;
             const body = (
               <>
                 <SourceIcon source={store.id} />
@@ -339,13 +312,7 @@ function SetupScreen({ step }: { step: number }) {
             );
             return (
               <motion.li key={store.id} variants={piece}>
-                {f ? (
-                  <button className={`setup-store is-account ${f.className}`} onClick={f.onClick} onPointerMove={f.onPointerMove}>
-                    {body}
-                  </button>
-                ) : (
-                  <div className={`setup-store ${own.length ? "" : "is-empty"}`}>{body}</div>
-                )}
+                <div className={`setup-store ${own.length ? "" : "is-empty"}`}>{body}</div>
               </motion.li>
             );
           })}
@@ -461,11 +428,11 @@ function SetupScreen({ step }: { step: number }) {
       return "silent";
     },
     Layer.setup,
-    !flow,
+    true,
   );
   // The last step says "press A" itself, so the bar keeps only the way back.
   const hints: Hint[] = busy ? [] : id === "done" ? [["b", "Back"]] : [["a", "Select"], ["dpad", "Move"], ...(step > 0 ? ([["b", "Back"]] as Hint[]) : []), ["y", "Skip setup"]];
-  useHints(hints, Layer.setup, !flow);
+  useHints(hints, Layer.setup, true);
 
   return (
     <motion.div className="setup" initial={firstShow ? { opacity: 0 } : false} animate={{ opacity: 1, transition: { duration: 0.4 } }} exit={{ opacity: 0, scale: 1.04, transition: { duration: 0.5, ease } }}>
@@ -492,7 +459,6 @@ function SetupScreen({ step }: { step: number }) {
           {content}
         </motion.main>
       </AnimatePresence>
-      {flow && <AccountFlow copy={(flow === "steam" ? steamCopy : xboxCopy)(accounts)} onChange={(a) => useStore.setState({ accounts: a })} onClose={() => setFlow(null)} />}
     </motion.div>
   );
 }

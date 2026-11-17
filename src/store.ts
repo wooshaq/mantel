@@ -53,8 +53,6 @@ interface State {
   /** Games seen on the stores' lists, which the library doesn't have. */
   storeGames: Record<string, Game>;
   accounts: AccountsStatus | null;
-  /** Settings is to open this store's sign-in. */
-  signInAsk: "steam" | "xbox" | null;
   /** Installs under way, by game id. */
   installs: Record<string, InstallProgress>;
   /** Library ids of games installed from Mantel this run; Home keeps them up front until played. */
@@ -105,7 +103,6 @@ export const useStore = create<State>(() => ({
   xboxStore: null,
   storeGames: {},
   accounts: null,
-  signInAsk: null,
   installs: {},
   justInstalled: [],
   access: {},
@@ -272,10 +269,6 @@ export function installEdition(from: Game, found: Editions) {
   if (!target.installed) void startInstall(target, true, [found.game]);
 }
 
-/** Settings, with this store's sign-in open. */
-export function openSignIn(store: "steam" | "xbox") {
-  set({ view: "settings", detailsId: null, signInAsk: store });
-}
 
 export async function loadCatalog() {
   const s = get().settings;

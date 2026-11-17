@@ -593,4 +593,13 @@ export const ru: Catalog = {
   "The NVIDIA driver didn't answer": "Драйвер NVIDIA не ответил",
   "No screen on the NVIDIA card can show HDR": "Ни один экран на карте NVIDIA не поддерживает HDR",
   "HDR switching works on Windows only": "Переключение HDR работает только в Windows",
+  "1 not installed": "Не установлено: 1",
+  "{n} not installed": "Не установлено: {n}",
+  "Language, games and how the handheld starts, step by step": "Язык, игры и запуск консоли, шаг за шагом",
+  "Mantel finds them in every store by itself, without signing in anywhere.": "Mantel сам находит их в каждом магазине, без входа куда-либо.",
+  "Games you install with Steam, Xbox, Epic, GOG or Ubisoft Connect show up here by themselves.": "Игры, установленные через Steam, Xbox, Epic, GOG или Ubisoft Connect, появятся здесь сами.",
+  "Achievements from your public profile": "Достижения из вашего открытого профиля",
+  "Browse the Game Pass catalog": "Каталог Game Pass",
+  "Achievements come from your public Steam profile": "Достижения берутся из вашего открытого профиля Steam",
+  "Mantel doesn't know your Steam profile yet: add it in Settings → Library": "Mantel ещё не знает ваш профиль Steam: добавьте его в Настройки → Библиотека",
 };

@@ -4,36 +4,26 @@ import { SourceIcon } from "../components/Glyph";
 import { useHints } from "../components/Hints";
 import { AddGame } from "../components/AddGame";
 import { KeyFlow } from "../components/KeyFlow";
-import { AccountFlow, steamCopy, xboxCopy } from "../components/AccountFlow";
 import { useScrollFocus } from "../hooks";
 import { Layer, useInput } from "../input";
 import { errorText, LANGUAGES, t } from "../i18n";
 import { loadCatalog, openSetup, refreshAchievements, rescan, saveSettings, setHidden, toast, useStore } from "../store";
 import { sound } from "../sound";
-import type { AccountsStatus, Settings as S, Source, SteamProfile } from "../types";
+import type { Settings as S, Source, SteamProfile } from "../types";
 
 type Row =
   | { kind: "group"; label: string }
   | { kind: "toggle"; id: string; label: string; sub?: string; value: boolean; icon?: Source; set: (v: boolean) => void }
   | { kind: "button"; id: string; label: string; sub?: string; value?: string; icon?: Icon; soon?: boolean; run: () => void };
 
-type Icon = Source | "ea" | "battlenet" | "art";
-type Flow = "steam" | "steamid" | "xbox" | "sgdb" | "add" | "home" | null;
-type Category = "library" | "accounts" | "interface" | "system";
+type Icon = Source | "art";
+type Flow = "steamid" | "sgdb" | "add" | null;
+type Category = "library" | "interface" | "system";
 
 const CATEGORIES: [Category, string, React.ReactNode][] = [
   ["library", "Library", <><rect x="3.5" y="3.5" width="7" height="7" rx="1.6" /><rect x="13.5" y="3.5" width="7" height="7" rx="1.6" /><rect x="3.5" y="13.5" width="7" height="7" rx="1.6" /><rect x="13.5" y="13.5" width="7" height="7" rx="1.6" /></>],
-  ["accounts", "Accounts", <><circle cx="12" cy="8.5" r="3.8" /><path d="M4.5 20c1.2-3.6 4.1-5.5 7.5-5.5s6.3 1.9 7.5 5.5" /></>],
   ["interface", "Interface", <><rect x="3" y="4.5" width="18" height="12.5" rx="2.2" /><path d="M9 20.5h6M12 17v3.5" /></>],
   ["system", "System", <><rect x="6" y="6" width="12" height="12" rx="2.2" /><path d="M9.5 2.8v3.2M14.5 2.8v3.2M9.5 18v3.2M14.5 18v3.2M2.8 9.5H6M2.8 14.5H6M18 9.5h3.2M18 14.5h3.2" /></>],
-];
-
-const MORE_STORES: [string, string, Icon][] = [
-  ["epic", "Epic Games", "epic"],
-  ["gog", "GOG", "gog"],
-  ["ea", "EA app", "ea"],
-  ["ubisoft", "Ubisoft Connect", "ubisoft"],
-  ["battlenet", "Battle.net", "battlenet"],
 ];
 
 function RowIcon({ icon }: { icon: Icon }) {
@@ -45,9 +35,6 @@ function RowIcon({ icon }: { icon: Icon }) {
         <path d="m20 15-4.5-4.5L6 20" />
       </svg>
     );
-  }
-  if (icon === "ea" || icon === "battlenet") {
-    return <span className="source-icon source-text">{icon === "ea" ? "EA" : "B"}</span>;
   }
   return <SourceIcon source={icon} />;
 }
@@ -74,23 +61,13 @@ export function Settings({ active }: { active: boolean }) {
   useEffect(() => void Object.assign(place, { category, zone, index }), [category, zone, index]);
   const [autostart, setAutostart] = useState(false);
   const [flow, setFlow] = useState<Flow>(null);
-  const [accounts, setAccounts] = useState<AccountsStatus | null>(null);
   const [profile, setProfile] = useState<SteamProfile | null>(null);
   const list = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api.getAutostart().then(setAutostart).catch(() => {});
-    api.accountsStatus().then(setAccounts).catch(() => {});
     api.steamProfile().then(setProfile).catch(() => {});
   }, []);
-
-  const signInAsk = useStore((s) => s.signInAsk);
-  useEffect(() => {
-    if (!signInAsk) return;
-    setCategory("accounts");
-    setFlow(signInAsk);
-    useStore.setState({ signInAsk: null });
-  }, [signInAsk]);
 
   useEffect(() => {
     list.current?.scrollTo({ top: 0 });
@@ -99,7 +76,6 @@ export function Settings({ active }: { active: boolean }) {
   useScrollFocus(list, `${category}${zone}${index}`);
 
   if (!settings) return null;
-  const steam = accounts?.steam;
   const patch = (p: Partial<S>) => saveSettings(p);
   const hidden = games.filter((g) => g.hidden);
 
@@ -132,34 +108,7 @@ export function Settings({ active }: { active: boolean }) {
         },
       }),
     ),
-    ...(hidden.length
-      ? [
-          { kind: "group", label: t("Hidden games · {n}", { n: hidden.length }) } as Row,
-          ...hidden.map(
-            (g): Row => ({ kind: "button", id: `hidden-${g.id}`, label: g.name, value: t("Unhide"), run: () => setHidden(g, false) }),
-          ),
-        ]
-      : []),
-  ];
-
-  const accountRows: Row[] = [
-    {
-      kind: "button",
-      id: "acc-steam",
-      icon: "steam",
-      label: "Steam",
-      sub: steam?.connected
-        ? steam.user
-          ? steam.owned === 1
-            ? t("1 game on {user}, playtime from every device", { user: steam.user })
-            : t("{n} games on {user}, playtime from every device", { n: steam.owned, user: steam.user })
-          : steam.owned === 1
-            ? t("1 game on your account, playtime from every device")
-            : t("{n} games on your account, playtime from every device", { n: steam.owned })
-        : t("Sign in to see every game you own and playtime from all your devices"),
-      value: steam?.connected ? t("Connected") : t("Sign in"),
-      run: () => setFlow("steam"),
-    },
+    { kind: "group", label: t("Achievements") },
     {
       kind: "button",
       id: "acc-steam-profile",
@@ -173,17 +122,6 @@ export function Settings({ active }: { active: boolean }) {
       value: profile ? (profile.detected ? t("From this PC") : t("Your profile")) : t("Add"),
       run: () => setFlow("steamid"),
     },
-    {
-      kind: "button",
-      id: "acc-xbox",
-      icon: "xbox",
-      label: "Xbox",
-      sub: accounts?.xboxGamertag
-        ? t("Signed in as {gamertag}: play history and minutes played", { gamertag: accounts.xboxGamertag })
-        : t("Play history and minutes played across your Xbox PC games"),
-      value: accounts?.xboxGamertag ? t("Connected") : t("Sign in"),
-      run: () => setFlow("xbox"),
-    },
     { kind: "group", label: t("Artwork") },
     {
       kind: "button",
@@ -194,10 +132,14 @@ export function Settings({ active }: { active: boolean }) {
       value: settings.steamgriddbKey ? t("Connected") : t("Connect"),
       run: () => setFlow("sgdb"),
     },
-    { kind: "group", label: t("More stores") },
-    ...MORE_STORES.map(
-      ([id, label, icon]): Row => ({ kind: "button", id: `acc-${id}`, icon, label, value: t("Coming soon"), soon: true, run: () => toast(t("{store} accounts are coming later", { store: label })) }),
-    ),
+    ...(hidden.length
+      ? [
+          { kind: "group", label: t("Hidden games · {n}", { n: hidden.length }) } as Row,
+          ...hidden.map(
+            (g): Row => ({ kind: "button", id: `hidden-${g.id}`, label: g.name, value: t("Unhide"), run: () => setHidden(g, false) }),
+          ),
+        ]
+      : []),
   ];
 
   const languageAt = Math.max(0, LANGUAGES.findIndex((l) => l.id === settings.language));
@@ -284,12 +226,12 @@ export function Settings({ active }: { active: boolean }) {
       kind: "button",
       id: "setup",
       label: t("Run setup again"),
-      sub: t("Language, accounts and how the handheld starts, step by step"),
+      sub: t("Language, games and how the handheld starts, step by step"),
       run: openSetup,
     },
   ];
 
-  const rows = { library, accounts: accountRows, interface: interfaceRows, system }[category];
+  const rows = { library, interface: interfaceRows, system }[category];
   const focusable = rows.map((r, n) => (r.kind === "group" ? -1 : n)).filter((n) => n >= 0);
   const i = focusable.includes(index) ? index : focusable[0];
   const pos = focusable.indexOf(i);
@@ -380,7 +322,6 @@ export function Settings({ active }: { active: boolean }) {
           </div>
         </div>
         {flow === "add" && <AddGame onClose={() => setFlow(null)} />}
-        {(flow === "steam" || flow === "xbox") && <AccountFlow copy={(flow === "steam" ? steamCopy : xboxCopy)(accounts)} onChange={setAccounts} onClose={() => setFlow(null)} />}
         {flow === "steamid" && (
           <KeyFlow
             kind="profile"

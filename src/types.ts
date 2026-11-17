@@ -162,9 +162,9 @@ export interface Suggestion {
   target: string;
 }
 
+/** What Steam on this PC is signed in as; Mantel itself signs in nowhere. */
 export interface AccountsStatus {
-  steam: { user: string | null; connected: boolean; owned: number };
-  xboxGamertag: string | null;
+  steam: { user: string | null };
 }
 
 export interface Settings {

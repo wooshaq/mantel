@@ -46,13 +46,9 @@ const seeds: Seed[] = [
   ["custom", "Celeste", 504230, 0, null],
 ];
 
-/** Steam-style counts for some games, Xbox gamerscore (one without a total) for others. */
+/** Counts from the public Steam profile, for played Steam games. */
 function achievementsFor(source: Source, i: number, minutes: number): Achievements | null {
-  if (!minutes || source === "custom" || source === "epic") return null;
-  if (source === "xbox") {
-    const gamerscore = 120 + ((i * 290) % 880);
-    return { unlocked: 4 + (i % 30), total: i % 2 ? 0 : 50, percent: Math.round(gamerscore / 10), gamerscore, gamerscoreTotal: 1000 };
-  }
+  if (!minutes || source !== "steam") return null;
   const total = 20 + ((i * 13) % 60);
   const unlocked = Math.min(total, Math.round((minutes / 9000) * total) + (i % 5));
   return { unlocked, total, percent: Math.round((100 * unlocked) / total) };
@@ -237,8 +233,6 @@ const SAMPLE_ACHIEVEMENTS = ["First Steps", "Night Owl", "Collector", "Untouchab
 
 let quick: Quick = { volume: 45, muted: false, brightness: 80, wifi: { connected: true, name: "Home Wi-Fi", signal: 72 } };
 let running: Running[] = [];
-let steamKey = "";
-let xboxTag: string | null = null;
 let autostart = false;
 /** As on the Ally: Xbox mode, Developer Mode off, so setup has the home app to offer. */
 const fullScreen = { supported: true, active: false, canSwitch: false };
@@ -287,13 +281,13 @@ export const mockApi: Api = {
   async getAchievements(id) {
     const g = games.find((x) => x.id === id);
     const a = g?.achievements;
-    if (!g || !a) throw "Achievements come from Steam and Xbox accounts";
+    if (!g || !a) throw "Achievements come from your public Steam profile";
     await wait(500);
     const total = a.total || 40;
     const unlocked = a.total ? a.unlocked : Math.round((total * a.percent) / 100);
     return Array.from({ length: total }, (_, i) => ({
       name: `${SAMPLE_ACHIEVEMENTS[i % SAMPLE_ACHIEVEMENTS.length]}${i >= SAMPLE_ACHIEVEMENTS.length ? ` ${Math.floor(i / SAMPLE_ACHIEVEMENTS.length) + 1}` : ""}`,
-      description: "Demo achievement: in the app this comes from your Steam or Xbox account.",
+      description: "Demo achievement: in the app this comes from your public Steam profile.",
       icon: null,
       unlocked: i < unlocked,
       unlockedAt: i < unlocked ? now - i * DAY : null,
@@ -533,22 +527,7 @@ export const mockApi: Api = {
     autostart = on;
   },
   async accountsStatus() {
-    return { steam: { user: "player", connected: steamKey !== "", owned: steamKey ? 214 : 0 }, xboxGamertag: xboxTag };
-  },
-  async xboxSignIn() {
-    await wait(2500);
-    xboxTag = "Ellion";
-    return mockApi.accountsStatus();
-  },
-  async steamSignIn() {
-    await wait(2500);
-    steamKey = "session";
-    return mockApi.accountsStatus();
-  },
-  async disconnectAccount(service) {
-    if (service === "xbox") xboxTag = null;
-    else steamKey = "";
-    return mockApi.accountsStatus();
+    return { steam: { user: "player" } };
   },
   async openSteamDownloads() {},
   async openSteamStore() {},

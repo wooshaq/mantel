@@ -2244,7 +2244,6 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "futures",
- "percent-encoding",
  "png",
  "reqwest 0.12.28",
  "roxmltree",
@@ -2256,7 +2255,6 @@ dependencies = [
  "tauri-plugin-autostart",
  "tauri-plugin-clipboard-manager",
  "tauri-plugin-single-instance",
- "tokio",
  "windows 0.62.2",
  "windows-sys 0.60.2",
  "winreg 0.55.0",

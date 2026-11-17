@@ -1,4 +1,3 @@
-mod accounts;
 mod apps;
 mod art;
 mod fse;
@@ -60,11 +59,11 @@ fn allow_assets(app: &AppHandle, dirs: &[std::path::PathBuf]) {
 
 fn rescan(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let (settings, custom, steam_signed_in, mut exclude) = {
+    let (settings, custom, mut exclude) = {
         let user = state.user.lock().unwrap();
         let mut exclude = apps::Exclude { taken: user.apps.iter().map(|a| a.target.clone()).collect(), ..Default::default() };
         exclude.taken.extend(user.dismissed_apps.iter().cloned());
-        (user.settings.clone(), user.custom.clone(), user.accounts.steam_signed_in, exclude)
+        (user.settings.clone(), user.custom.clone(), exclude)
     };
     // The Start menu is read while the stores scan: known apps join the Apps tab by themselves,
     // and Store apps on it follow their folder across updates.
@@ -105,45 +104,6 @@ fn rescan(app: &AppHandle) {
     scan.asset_dirs.extend(shown.iter().filter_map(|a| a.location.as_ref().map(std::path::PathBuf::from)));
     scan.asset_dirs.push(icons);
     allow_assets(app, &scan.asset_dirs);
-
-    if settings.sources.steam && steam_signed_in {
-        let owned = match tauri::async_runtime::block_on(accounts::steam_owned(app)) {
-            Ok(mut list) => {
-                log::info(&format!("steam account: {} owned games", list.len()));
-                if let Err(e) = tauri::async_runtime::block_on(accounts::steam_achievements(app, &mut list)) {
-                    log::warn(&e);
-                }
-                state.cache.lock().unwrap().owned_steam = list.clone();
-                list
-            }
-            Err(e) => {
-                log::warn(&format!("steam account: {e}; using last known list"));
-                state.cache.lock().unwrap().owned_steam.clone()
-            }
-        };
-        accounts::merge_steam(&mut scan.games, &owned);
-        scan.games.sort_by_key(|g| library::sort_key(&g.name));
-    }
-
-    let xbox_signed_in = !state.user.lock().unwrap().accounts.xbox_refresh.is_empty();
-    if settings.sources.xbox && xbox_signed_in {
-        let titles = match tauri::async_runtime::block_on(accounts::xbox_titles(app)) {
-            Ok(mut list) => {
-                log::info(&format!("xbox account: {} PC games in history", list.len()));
-                let installed: Vec<String> = scan.games.iter().filter(|g| g.source == "xbox").map(|g| g.source_id.clone()).collect();
-                let known = state.cache.lock().unwrap().owned_xbox.clone();
-                tauri::async_runtime::block_on(accounts::xbox_counts(app, &mut list, &known, &installed));
-                state.cache.lock().unwrap().owned_xbox = list.clone();
-                list
-            }
-            Err(e) => {
-                log::warn(&format!("xbox account: {e}; using last known list"));
-                state.cache.lock().unwrap().owned_xbox.clone()
-            }
-        };
-        accounts::merge_xbox(&mut scan.games, &titles);
-        scan.games.sort_by_key(|g| library::sort_key(&g.name));
-    }
 
     {
         let mut user = state.user.lock().unwrap();
@@ -336,11 +296,11 @@ async fn gamepass_catalog(state: State<'_, AppState>, language: String) -> Resul
 /// A Store game opens on its page in the Xbox app (or the Microsoft Store), which installs it: this
 /// build never drives Windows' installer itself.
 #[tauri::command]
-fn install_game(app: AppHandle, state: State<'_, AppState>, id: String, chosen: Option<Vec<String>>) -> Result<(), String> {
+fn install_game(app: AppHandle, id: String, chosen: Option<Vec<String>>) -> Result<(), String> {
     if id.starts_with(steam_install::ID_PREFIX) {
         return steam_install::start(&app, &id);
     }
-    let product = chosen.and_then(|c| c.into_iter().next()).or_else(|| store_product(&state, &id)).ok_or("Only Steam and Store games install from Mantel")?;
+    let product = chosen.and_then(|c| c.into_iter().next()).or_else(|| store_product(&id)).ok_or("Only Steam and Store games install from Mantel")?;
     launcher::open_external(&format!("{}{}", gamepass::install_uri(), xbox_store::checked(&product)?))
 }
 
@@ -376,8 +336,8 @@ fn install_access(_id: String) -> Option<bool> {
 
 /// A game's editions on sale, from any card of it. `id` is a store entry's, or a played game's.
 #[tauri::command]
-async fn xbox_editions(state: State<'_, AppState>, id: String, language: String) -> Result<Option<xbox_store::Editions>, String> {
-    let Some(product) = store_product(&state, &id) else { return Ok(None) };
+async fn xbox_editions(id: String, language: String) -> Result<Option<xbox_store::Editions>, String> {
+    let Some(product) = store_product(&id) else { return Ok(None) };
     Ok(xbox_store::editions(xbox_store::checked(&product)?, &language).await)
 }
 
@@ -403,14 +363,13 @@ fn installs_under_way() -> Vec<String> {
     steam_install::under_way()
 }
 
-/// The Store product behind a game: in the id of a catalog or store entry, and in the play history
-/// for a played game. Other games don't install through Windows.
-fn store_product(state: &AppState, id: &str) -> Option<String> {
+/// The Store product behind a game: in the id of a catalog or store entry. Other games don't
+/// install through Windows.
+fn store_product(id: &str) -> Option<String> {
     if let Some(product) = id.strip_prefix(gamepass::ID_PREFIX).or_else(|| id.strip_prefix(xbox_store::ID_PREFIX)) {
         return Some(product.to_string());
     }
-    let pfn = id.strip_prefix("xbox:")?;
-    state.cache.lock().unwrap().owned_xbox.iter().find(|t| t.pfn.eq_ignore_ascii_case(pfn))?.product_id.clone()
+    None
 }
 
 /// A library game, or one from the Game Pass catalog.
@@ -430,7 +389,7 @@ async fn get_details(state: State<'_, AppState>, id: String, language: Option<St
         None => id,
     };
     if id.starts_with("xbox:") {
-        if let Some(product) = store_product(&state, &id).filter(|p| xbox_store::checked(p).is_ok()) {
+        if let Some(product) = store_product(&id).filter(|p| xbox_store::checked(p).is_ok()) {
             let catalog_language = state.cache.lock().unwrap().gamepass.language.clone();
             let key = state.user.lock().unwrap().settings.steamgriddb_key.trim().to_string();
             if let Some(page) = xbox_store::details(&product, if catalog_language.is_empty() { "en-us" } else { &catalog_language }, &key).await {
@@ -500,59 +459,24 @@ async fn get_details(state: State<'_, AppState>, id: String, language: Option<St
     Ok(details.or(cached))
 }
 
-/// The game's achievements with the player's progress, from the store account it came from.
-/// Xbox titles that report no count get it from the list.
+/// A Steam game's achievements from the player's public profile, with when each was unlocked.
 #[tauri::command]
-async fn get_achievements(app: AppHandle, state: State<'_, AppState>, id: String, language: Option<String>) -> Result<Vec<model::Achievement>, String> {
+async fn get_achievements(state: State<'_, AppState>, id: String, language: Option<String>) -> Result<Vec<model::Achievement>, String> {
     let game = snapshot(&state).into_iter().find(|g| g.id == id).ok_or("Game not found")?;
-    match game.source.as_str() {
-        "steam" => {
-            let appid: u32 = game.source_id.parse().map_err(|_| "Unknown Steam app")?;
-            let signed_in = state.user.lock().unwrap().accounts.steam_signed_in;
-            // The public profile knows when each was unlocked; the sign-in is the way in when
-            // the profile is private.
-            let public = match steam_id(&state) {
-                Some((sid, _)) => Some(steam_public::list(sid, appid, language.as_deref().unwrap_or("english")).await),
-                None => None,
-            };
-            match public {
-                Some(Ok((list, progress))) => {
-                    let mut cache = state.cache.lock().unwrap();
-                    let p = cache.steam_public.entry(appid).or_default();
-                    p.at = now();
-                    p.total = progress.total;
-                    p.total_at = now();
-                    p.achievements = (progress.total > 0).then_some(progress);
-                    state.save_cache(&cache);
-                    Ok(list)
-                }
-                Some(Err(_)) | None if signed_in => accounts::steam_achievement_list(&app, appid).await,
-                Some(Err(e)) => Err(e),
-                None => Err("Mantel doesn't know your Steam profile yet: add it in Settings → Accounts".into()),
-            }
-        }
-        "xbox" => {
-            let title = state.cache.lock().unwrap().owned_xbox.iter().find(|t| t.pfn.eq_ignore_ascii_case(&game.source_id)).map(|t| t.title_id.clone());
-            let title = title.filter(|t| !t.is_empty()).ok_or("Xbox Live has no achievements for this game")?;
-            let list = accounts::xbox_achievement_list(&app, &title).await?;
-            let mut cache = state.cache.lock().unwrap();
-            let (unlocked, total) = (list.iter().filter(|a| a.unlocked).count() as u32, list.len() as u32);
-            let fill = |a: &mut Option<model::Achievements>| {
-                if let Some(a) = a.as_mut() {
-                    a.count(unlocked, total);
-                }
-            };
-            if let Some(t) = cache.owned_xbox.iter_mut().find(|t| t.title_id == title) {
-                fill(&mut t.achievements);
-            }
-            if let Some(g) = cache.library.iter_mut().find(|g| g.id == id) {
-                fill(&mut g.achievements);
-            }
-            state.save_cache(&cache);
-            Ok(list)
-        }
-        _ => Err("Achievements come from Steam and Xbox accounts".into()),
+    if game.source != "steam" {
+        return Err("Achievements come from your public Steam profile".into());
     }
+    let appid: u32 = game.source_id.parse().map_err(|_| "Unknown Steam app")?;
+    let (sid, _) = steam_id(&state).ok_or("Mantel doesn't know your Steam profile yet: add it in Settings → Library")?;
+    let (list, progress) = steam_public::list(sid, appid, language.as_deref().unwrap_or("english")).await?;
+    let mut cache = state.cache.lock().unwrap();
+    let p = cache.steam_public.entry(appid).or_default();
+    p.at = now();
+    p.total = progress.total;
+    p.total_at = now();
+    p.achievements = (progress.total > 0).then_some(progress);
+    state.save_cache(&cache);
+    Ok(list)
 }
 
 #[tauri::command]
@@ -896,83 +820,20 @@ fn remove_custom_game(state: State<'_, AppState>, id: String) -> Vec<Game> {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SteamStatus {
-    /// Account signed in to the Steam client on this machine.
+    /// Account signed in to the Steam client on this machine, read from Steam's own files.
     user: Option<String>,
-    connected: bool,
-    owned: usize,
 }
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AccountsStatus {
     steam: SteamStatus,
-    xbox_gamertag: Option<String>,
 }
 
-fn accounts_snapshot(state: &AppState) -> AccountsStatus {
-    let user = state.user.lock().unwrap();
-    let owned = state.cache.lock().unwrap().owned_steam.len();
-    AccountsStatus {
-        steam: SteamStatus {
-            user: library::steam_user().map(|(_, name)| name),
-            connected: user.accounts.steam_signed_in,
-            owned,
-        },
-        xbox_gamertag: Some(user.accounts.xbox_gamertag.clone()).filter(|g| !g.is_empty()),
-    }
-}
-
+/// What Steam on this PC is signed in as. Mantel itself signs in nowhere.
 #[tauri::command]
-fn accounts_status(state: State<'_, AppState>) -> AccountsStatus {
-    accounts_snapshot(&state)
-}
-
-/// Steam's own sign-in page in a Mantel window; resolves once the account's games are in.
-#[tauri::command]
-async fn steam_sign_in(app: AppHandle, state: State<'_, AppState>) -> Result<AccountsStatus, String> {
-    accounts::steam_sign_in(&app).await?;
-    let owned = accounts::steam_owned(&app).await?;
-    {
-        let mut cache = state.cache.lock().unwrap();
-        cache.owned_steam = owned;
-        state.save_cache(&cache);
-    }
-    Ok(accounts_snapshot(&state))
-}
-
-/// Microsoft's sign-in page in a Mantel window; resolves once signed in to Xbox Live.
-#[tauri::command]
-async fn xbox_sign_in(app: AppHandle, state: State<'_, AppState>) -> Result<AccountsStatus, String> {
-    accounts::xbox_sign_in(&app).await?;
-    Ok(accounts_snapshot(&state))
-}
-
-#[tauri::command]
-async fn disconnect_account(app: AppHandle, state: State<'_, AppState>, service: String) -> Result<AccountsStatus, String> {
-    match service.as_str() {
-        "steam" => accounts::steam_sign_out(&app).await,
-        "xbox" => {
-            {
-                let mut user = state.user.lock().unwrap();
-                user.accounts.xbox_refresh.clear();
-                user.accounts.xbox_gamertag.clear();
-                user.accounts.xbox_session = Default::default();
-                state.save_user(&user);
-            }
-            let mut cache = state.cache.lock().unwrap();
-            cache.owned_xbox.clear();
-            cache.library.retain(|g| g.installed || g.source != "xbox");
-            state.save_cache(&cache);
-        }
-        _ => {}
-    }
-    if service == "steam" {
-        let mut cache = state.cache.lock().unwrap();
-        cache.owned_steam.clear();
-        cache.library.retain(|g| g.installed || g.source != "steam");
-        state.save_cache(&cache);
-    }
-    Ok(accounts_snapshot(&state))
+fn accounts_status() -> AccountsStatus {
+    AccountsStatus { steam: SteamStatus { user: library::steam_user().map(|(_, name)| name) } }
 }
 
 /// Pausing and resuming are Steam's to do.
@@ -1005,13 +866,9 @@ fn steam_id(state: &AppState) -> Option<(u64, bool)> {
     saved.map(|id| (id, false)).or_else(|| library::steam_user().map(|(id, _)| (id, true)))
 }
 
-/// Achievement progress for played Steam games from the public profile, for players not
-/// signed in. Asks only about games whose last answer is a few hours old. Whether any changed.
+/// Achievement progress for played Steam games from the public profile. Asks only about games whose last answer is a few hours old. Whether any changed.
 #[tauri::command]
 async fn refresh_steam_achievements(state: State<'_, AppState>) -> Result<bool, String> {
-    if state.user.lock().unwrap().accounts.steam_signed_in {
-        return Ok(false);
-    }
     let Some((sid, _)) = steam_id(&state) else { return Ok(false) };
     // Played games only: the rest have nothing unlocked. Playtime Mantel measured counts too.
     let appids: Vec<u32> = snapshot(&state)
@@ -1158,8 +1015,18 @@ pub fn run() {
             dirs.push(state.art_dir());
             dirs.push(state.icons_dir());
             let customs: Vec<_> = state.user.lock().unwrap().custom.iter().filter_map(|c| std::path::Path::new(&c.path).parent().map(|p| p.to_path_buf())).collect();
+            let legacy_session = state.legacy_steam_session;
             app.manage(state);
             allow_assets(app.handle(), &dirs);
+            if legacy_session {
+                // A Steam sign-in from an older version kept its session in the WebView's cookies.
+                if let Some(w) = app.get_webview_window("main") {
+                    std::thread::spawn(move || match w.clear_all_browsing_data() {
+                        Ok(()) => log::info("old Steam session cleared from the WebView"),
+                        Err(e) => log::warn(&format!("couldn't clear the old Steam session: {e}")),
+                    });
+                }
+            }
             allow_assets(app.handle(), &customs);
             launcher::spawn_tracker(app.handle().clone());
             launcher::watch_front(app.handle());
@@ -1212,9 +1079,6 @@ pub fn run() {
             full_screen_mode,
             client_log,
             accounts_status,
-            steam_sign_in,
-            xbox_sign_in,
-            disconnect_account,
             open_url,
             open_steam_downloads,
             open_steam_store,

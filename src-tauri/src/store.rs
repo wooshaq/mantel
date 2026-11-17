@@ -94,24 +94,6 @@ pub struct CustomGame {
     pub target: Option<String>,
 }
 
-/// Store sign-ins. Kept out of `Settings` so tokens never travel to the UI, and encrypted on
-/// disk (see [`secret`]).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct Accounts {
-    /// Signed in to Steam in Mantel's WebView; the session itself lives in its cookie jar.
-    pub steam_signed_in: bool,
-    /// Short-lived Steam Web API token, renewed as it expires.
-    #[serde(with = "secret")]
-    pub steam_token: String,
-    /// Microsoft refresh token for Xbox Live; rotated on every use.
-    #[serde(with = "secret")]
-    pub xbox_refresh: String,
-    pub xbox_gamertag: String,
-    /// Cached XSTS token, good for about a day.
-    pub xbox_session: crate::accounts::XboxSession,
-}
-
 /// Everything the user created: lost data here is lost for good.
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -119,7 +101,6 @@ pub struct UserData {
     pub settings: Settings,
     pub meta: HashMap<String, GameMeta>,
     pub custom: Vec<CustomGame>,
-    pub accounts: Accounts,
     /// The Apps tab: apps the player added, and known ones that joined by themselves.
     pub apps: Vec<crate::apps::AppEntry>,
     /// Apps the player took off the tab, by what launches them, so they don't come back.
@@ -149,9 +130,6 @@ pub struct Cache {
     pub asset_dirs: Vec<PathBuf>,
     pub art: HashMap<String, ResolvedArt>,
     pub details: HashMap<u32, serde_json::Value>,
-    /// Last good answer from each store account, used when it can't be reached.
-    pub owned_steam: Vec<crate::accounts::OwnedSteam>,
-    pub owned_xbox: Vec<crate::accounts::XboxTitle>,
     /// Install folder sizes for stores that don't report one, by install folder.
     pub sizes: HashMap<String, MeasuredSize>,
     pub gamepass: crate::gamepass::Catalog,
@@ -168,6 +146,8 @@ pub struct AppState {
     pub running: Mutex<Vec<crate::launcher::Running>>,
     /// What "Add an app" offered last: adding takes an app from here, never a path from the UI.
     pub app_choices: Mutex<Vec<crate::apps::AppEntry>>,
+    /// An older version was signed in to Steam, whose session lives in the WebView's cookies.
+    pub legacy_steam_session: bool,
 }
 
 const USER_FILE: &str = "user.json";
@@ -175,18 +155,25 @@ const CACHE_FILE: &str = "cache.json";
 
 impl AppState {
     pub fn load(dir: PathBuf) -> Self {
-        let state = AppState {
+        let legacy = legacy_accounts(&dir.join(USER_FILE));
+        let mut state = AppState {
             user: Mutex::new(read_json(&dir.join(USER_FILE))),
             cache: Mutex::new(read_json(&dir.join(CACHE_FILE))),
             running: Mutex::new(Vec::new()),
             app_choices: Mutex::new(Vec::new()),
+            legacy_steam_session: false,
             dir,
         };
-        // Tokens saved by older versions are plain text: encrypt them right away.
-        if secret::found_plain() {
+        // Sign-ins are gone from this build: tokens an older version kept are deleted from disk
+        // right away, and whatever was learned through them from the cache.
+        if legacy.is_some() {
             state.save_user(&state.user.lock().unwrap());
-            crate::log::info("account tokens encrypted");
+            let mut cache = state.cache.lock().unwrap();
+            cache.library.retain(|g| g.installed);
+            state.save_cache(&cache);
+            crate::log::info("account sign-ins from an older version removed");
         }
+        state.legacy_steam_session = legacy.unwrap_or(false);
         state
     }
 
@@ -209,92 +196,30 @@ impl AppState {
     }
 }
 
-/// Account tokens in `user.json`, encrypted with DPAPI for the signed-in Windows user, so a
-/// copy of the file is useless elsewhere. Plain values from before still load, and are
-/// encrypted on the next save. Elsewhere (development on macOS) they stay plain.
-pub mod secret {
-    use std::sync::atomic::{AtomicBool, Ordering};
+/// Whether `user.json` still has sign-ins from an older version: Some(true) with a Steam session.
+fn legacy_accounts(path: &Path) -> Option<bool> {
+    let v: serde_json::Value = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
+    let accounts = v.get("accounts")?;
+    Some(accounts.get("steamSignedIn").and_then(serde_json::Value::as_bool).unwrap_or(false))
+}
 
-    use base64::engine::general_purpose::STANDARD;
-    use base64::Engine;
-    use serde::{Deserialize, Deserializer, Serializer};
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    const PREFIX: &str = "dpapi:";
-    static PLAIN: AtomicBool = AtomicBool::new(false);
-
-    /// Whether anything loaded so far was stored in plain text.
-    pub fn found_plain() -> bool {
-        cfg!(windows) && PLAIN.load(Ordering::Relaxed)
-    }
-
-    pub fn serialize<S: Serializer>(value: &str, s: S) -> Result<S::Ok, S::Error> {
-        if value.is_empty() {
-            return s.serialize_str("");
-        }
-        match protect(value.as_bytes()) {
-            Some(blob) => s.serialize_str(&format!("{PREFIX}{}", STANDARD.encode(blob))),
-            // On Windows a token never goes to disk unencrypted: if DPAPI fails, the player
-            // signs in again next time. Elsewhere (development) there's no DPAPI at all.
-            None if cfg!(windows) => s.serialize_str(""),
-            None => s.serialize_str(value),
-        }
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
-        let raw = String::deserialize(d)?;
-        Ok(match raw.strip_prefix(PREFIX) {
-            // Unreadable here (another user or PC): as good as signed out.
-            Some(blob) => STANDARD.decode(blob).ok().and_then(|b| unprotect(&b)).and_then(|b| String::from_utf8(b).ok()).unwrap_or_default(),
-            None => {
-                if !raw.is_empty() {
-                    PLAIN.store(true, Ordering::Relaxed);
-                }
-                raw
-            }
-        })
-    }
-
-    #[cfg(windows)]
-    fn crypt(data: &[u8], encrypt: bool) -> Option<Vec<u8>> {
-        use std::ptr::{null, null_mut};
-        use windows_sys::Win32::Foundation::LocalFree;
-        use windows_sys::Win32::Security::Cryptography::{CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB};
-        let input = CRYPT_INTEGER_BLOB { cbData: data.len() as u32, pbData: data.as_ptr() as *mut u8 };
-        let mut out = CRYPT_INTEGER_BLOB { cbData: 0, pbData: null_mut() };
-        let ok = unsafe {
-            if encrypt {
-                CryptProtectData(&input, null(), null(), null(), null(), CRYPTPROTECT_UI_FORBIDDEN, &mut out)
-            } else {
-                CryptUnprotectData(&input, null_mut(), null(), null(), null(), CRYPTPROTECT_UI_FORBIDDEN, &mut out)
-            }
-        };
-        if ok == 0 || out.pbData.is_null() {
-            crate::log::warn(&format!("DPAPI {} failed", if encrypt { "encryption" } else { "decryption" }));
-            return None;
-        }
-        let bytes = unsafe { std::slice::from_raw_parts(out.pbData, out.cbData as usize) }.to_vec();
-        unsafe { LocalFree(out.pbData as _) };
-        Some(bytes)
-    }
-
-    #[cfg(windows)]
-    fn protect(data: &[u8]) -> Option<Vec<u8>> {
-        crypt(data, true)
-    }
-
-    #[cfg(windows)]
-    fn unprotect(data: &[u8]) -> Option<Vec<u8>> {
-        crypt(data, false)
-    }
-
-    #[cfg(not(windows))]
-    fn protect(_: &[u8]) -> Option<Vec<u8>> {
-        None
-    }
-
-    #[cfg(not(windows))]
-    fn unprotect(_: &[u8]) -> Option<Vec<u8>> {
-        None
+    #[test]
+    fn finds_and_drops_old_sign_ins() {
+        let dir = std::env::temp_dir().join("mantel-legacy-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(USER_FILE);
+        std::fs::write(&file, r#"{"settings":{"sounds":false},"accounts":{"steamSignedIn":true,"steamToken":"dpapi:abc","xboxRefresh":"x"}}"#).unwrap();
+        assert_eq!(legacy_accounts(&file), Some(true));
+        let user: UserData = read_json(&file);
+        assert!(!user.settings.sounds);
+        let saved = serde_json::to_string(&user).unwrap();
+        assert!(!saved.contains("accounts") && !saved.contains("dpapi") && !saved.contains("xboxRefresh"));
+        std::fs::write(&file, r#"{"settings":{}}"#).unwrap();
+        assert_eq!(legacy_accounts(&file), None);
     }
 }
 
@@ -303,32 +228,6 @@ fn read_json<T: DeserializeOwned + Default>(path: &Path) -> T {
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn keeps_tokens_secret() {
-        let mut user = UserData::default();
-        user.accounts.steam_token = "steam-jwt".into();
-        user.accounts.xbox_refresh = "M.refresh".into();
-        user.accounts.xbox_session.token = "xsts".into();
-        let json = serde_json::to_string(&user).unwrap();
-        if cfg!(windows) {
-            assert!(!json.contains("steam-jwt") && !json.contains("M.refresh") && !json.contains("\"xsts\""));
-        }
-        let back: UserData = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.accounts.steam_token, "steam-jwt");
-        assert_eq!(back.accounts.xbox_refresh, "M.refresh");
-        assert_eq!(back.accounts.xbox_session.token, "xsts");
-
-        // Plain values from older versions load as they are; broken blobs mean signed out.
-        let old: UserData = serde_json::from_str(r#"{"accounts":{"steamToken":"plain","xboxRefresh":"dpapi:!!"}}"#).unwrap();
-        assert_eq!(old.accounts.steam_token, "plain");
-        assert_eq!(old.accounts.xbox_refresh, "");
-    }
 }
 
 /// Writes through a temp file so a crash mid-write never truncates the original.

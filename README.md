@@ -22,21 +22,22 @@ TV PC.
   The control center (≡) sets volume and brightness, shows Wi-Fi and battery, closes
   games, restarts or powers off the device. Several games and programs can run at once;
   each one closes from its own card.
-- **Playtime that adds up.** Mantel times every session itself and, with your accounts
-  connected, brings in playtime from Steam and Xbox across all your devices.
-- **One library, two stores.** The Library holds everything you have from every store,
-  installed or not, with a filter for each store. Sign in to see all your Steam games and the
-  Xbox games you've played. The Xbox tab is the PC Game Pass catalog and the Microsoft Store,
+- **Playtime that adds up.** Mantel times every session itself, games started outside it
+  included, and takes Steam's own playtime from its files.
+- **No sign-ins.** This build (wooshaq) signs in to no account anywhere: no Steam, Xbox or
+  Microsoft sign-in windows, and no tokens on disk.
+- **One library, two stores.** The Library holds the games installed from every store, with a
+  filter for each store. The Xbox tab is the PC Game Pass catalog and the Microsoft Store,
   the Steam tab the Steam store, each with lists by genre and shelves that open into full
   grids. Search reaches both stores too. Buying happens in the store itself.
 - **Install from the couch.** Steam games install through Steam's dialog, with progress on the
   home screen. In this build (wooshaq) Game Pass and Store games open on their page in the Xbox
   app, which installs them, and uninstall in Windows Settings: Mantel never runs PowerShell.
 - **In your language.** English, French, German, Polish, Spanish and Russian.
-- **Achievements.** With an account connected, every Steam and Xbox game shows its
-  progress, and its page lists each achievement with rarity and gamerscore. Steam
-  achievements also come without signing in, from your public Steam profile, with the date
-  each one was unlocked (Settings → Accounts → Steam achievements).
+- **Achievements.** Played Steam games show their progress from your public Steam profile,
+  and a game's page lists each achievement with its rarity and the date you unlocked it
+  (Settings → Library → Steam achievements). No sign-in: the profile's game details only
+  have to be public.
 - **HDR for the games that want it.** A game's page turns HDR on for that game: Mantel
   switches it on before the game starts and back off when it ends, through Windows or the
   NVIDIA driver (Settings → System).
@@ -72,38 +73,35 @@ choose *More info → Run anyway*. Signing will come through SignPath Foundation
 
 ## Where games come from
 
-| Store | Installed games | With your account |
-| --- | --- | --- |
-| Steam | Library folders and app manifests, playtime from Steam's own files | Every owned game, playtime from all devices, achievements |
-| Xbox / Game Pass / Microsoft Store | Packages that ship a `MicrosoftGame.config` | Play history, minutes played, achievements |
-| Epic Games | Launcher manifests and catalog cache | Coming later |
-| GOG | Registry; launches through Galaxy when installed | Coming later |
-| Ubisoft Connect | Registry | Coming later |
-| Anything else | Settings → *Add a game manually*: suggested shortcuts, or any `.exe`, `.lnk` or `.url` | |
+| Store | Installed games |
+| --- | --- |
+| Steam | Library folders and app manifests, playtime from Steam's own files; achievements from the public profile |
+| Xbox / Game Pass / Microsoft Store | Packages that ship a `MicrosoftGame.config` |
+| Epic Games | Launcher manifests and catalog cache |
+| GOG | Registry; launches through Galaxy when installed |
+| Ubisoft Connect | Registry |
+| Anything else | Settings → *Add a game manually*: suggested shortcuts, or any `.exe`, `.lnk` or `.url` |
 
-## Accounts and privacy
+## Privacy
 
-Mantel has no servers and sends no telemetry. It talks only to the services you use:
+Mantel has no servers, sends no telemetry and signs in to no account. It talks only to:
 
-- **Steam.** You sign in on Steam's own page inside Mantel; Mantel never sees your
-  password, and email Steam Guard codes work. Mantel then reads your owned games and achievements
-  with the same short-lived token the Steam store page uses. Without signing in, Mantel reads
-  achievements of played games from your public Steam profile through Steam's public Web API,
-  using the SteamID of the account Steam last signed in with on this PC, or the profile you
-  enter.
-- **Xbox.** You sign in on Microsoft's own page and allow Mantel to read your Xbox profile.
-  Mantel reads your play history, minutes played and achievements from Xbox Live.
+- **Steam's public Web API and community pages**, for achievements of the Steam games you have
+  played: it asks for the public profile of the account Steam last signed in with on this PC
+  (read from Steam's `loginusers.vdf`), or the profile you enter. Nothing is sent but the
+  SteamID and the game's app id.
 - **Store catalogs.** Microsoft's public Game Pass and Store catalogs and Steam's store, for
   the lists to browse and for search, which sends them what you type. No account is involved
   in reading them.
-- **Installing.** Store installs go through Windows' own installer, under the Microsoft
+- **Installing.** Store games open in the Xbox app, which installs them under the Microsoft
   account signed in to Windows; Steam installs go through the Steam client.
 - **Artwork and trailers.** Steam's store, image and video servers, GOG's public API and,
   if you add a key, SteamGridDB.
 
 Everything stays on your PC in `%APPDATA%\com.playmantel.launcher\`: `user.json` holds
-settings, favorites, playtime and the account tokens, which are encrypted for your Windows
-user (DPAPI), and never written unencrypted; `cache.json` can be deleted at any time. Settings → Accounts signs you out and deletes the tokens.
+settings, favorites and playtime; `cache.json` can be deleted at any time. Sign-ins an older
+version saved are deleted from `user.json` on the first start of this one, along with a Steam
+session in Mantel's WebView.
 
 ## Controls
 
@@ -158,10 +156,7 @@ in `src-tauri/tauri.conf.json`.
 
 ### Forks
 
-Please use your own Xbox app registration (a personal-accounts Azure app with the redirect
-URI `https://login.live.com/oauth20_desktop.srf`; put its client ID in
-`src-tauri/src/accounts.rs`) and your own updater key and release URL in
-`src-tauri/tauri.conf.json`.
+This fork has no sign-ins, no updater and no Xbox app registration.
 
 ## Contributing
 
