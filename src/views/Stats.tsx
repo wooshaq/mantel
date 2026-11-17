@@ -204,7 +204,7 @@ export function Stats({ active }: { active: boolean }) {
             <div className="stat-label">{t("This year")}</div>
           </div>
           <div className="stat">
-            <div className="stat-value">{summary.streak}<span className="stat-unit">{t("days")}</span></div>
+            <div className="stat-value">{summary.streak}<span className="stat-unit">{summary.streak === 1 ? t("day") : t("days")}</span></div>
             <div className="stat-label">{t("Longest streak")}</div>
           </div>
           <div className="stat">

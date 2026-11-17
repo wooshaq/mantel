@@ -660,4 +660,5 @@ export const ru: Catalog = {
   "Month": "Месяц",
   "That isn't a HowLongToBeat game link": "Это не ссылка на игру HowLongToBeat",
   "HowLongToBeat has no times for that game": "У HowLongToBeat нет времени для этой игры",
+  "day": "день",
 };

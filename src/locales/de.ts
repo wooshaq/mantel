@@ -625,4 +625,5 @@ export const de: Catalog = {
   "Month": "Monat",
   "That isn't a HowLongToBeat game link": "Das ist kein HowLongToBeat-Spiellink",
   "HowLongToBeat has no times for that game": "HowLongToBeat hat keine Zeiten für dieses Spiel",
+  "day": "Tag",
 };

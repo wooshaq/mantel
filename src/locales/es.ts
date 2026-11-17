@@ -625,4 +625,5 @@ export const es: Catalog = {
   "Month": "Mes",
   "That isn't a HowLongToBeat game link": "Eso no es un enlace de juego de HowLongToBeat",
   "HowLongToBeat has no times for that game": "HowLongToBeat no tiene tiempos para ese juego",
+  "day": "día",
 };
