@@ -331,6 +331,9 @@ img { display: block; }
 .btn.is-focused { transform: scale(1.07); background: #fff; color: #07080c; box-shadow: 0 1.4rem 3.4rem -1rem var(--glow), 0 0.4rem 1.2rem rgba(0, 0, 0, 0.35); }
 .btn-pill.is-armed.is-focused { background: var(--bad); color: #fff; box-shadow: 0 1.4rem 3.4rem -1rem var(--bad); }
 .btn-round.is-focused.is-on .star { fill: #07080c; stroke: #07080c; }
+.btn-round .hdr { font-size: 0.95rem; font-weight: 750; letter-spacing: 0.03em; }
+.btn-round.is-on .hdr { color: var(--gold); }
+.btn-round.is-focused.is-on .hdr { color: #07080c; }
 
 /* ---------- Covers -------------------------------------------------------- */
 

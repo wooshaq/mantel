@@ -567,4 +567,6 @@ export const fr: Catalog = {
   "Browse the Game Pass catalog": "Parcourir le catalogue Game Pass",
   "Achievements come from your public Steam profile": "Les succès viennent de votre profil Steam public",
   "Mantel doesn't know your Steam profile yet: add it in Settings → Library": "Mantel ne connaît pas encore votre profil Steam : ajoutez-le dans Paramètres → Bibliothèque",
+  "Turn HDR off": "Désactiver le HDR",
+  "Turn HDR on": "Activer le HDR",
 };

@@ -47,6 +47,23 @@ pub fn set(app: &AppHandle, on: bool, show: &str, quit: &str) -> Result<(), Stri
     Ok(())
 }
 
+/// Hides the window in the tray. Its taskbar button goes first: a hidden window that Windows
+/// restores minimized (as it can after a game) would otherwise come back on the taskbar.
+fn to_tray(w: &tauri::WebviewWindow) {
+    let _ = w.set_skip_taskbar(true);
+    let _ = w.hide();
+}
+
+/// Out of the way while a game runs: into the tray when it's on, else minimized.
+pub fn step_aside(app: &AppHandle) {
+    let Some(w) = app.get_webview_window("main") else { return };
+    if ON.load(Ordering::Relaxed) {
+        to_tray(&w);
+    } else {
+        let _ = w.minimize();
+    }
+}
+
 /// Shows the icon at startup when the settings ask for it; the interface relabels it.
 pub fn init(app: &AppHandle) {
     let on = app.state::<AppState>().user.lock().unwrap().settings.tray;
@@ -64,11 +81,9 @@ pub fn init(app: &AppHandle) {
         match e {
             WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
-                let _ = w.hide();
+                to_tray(&w);
             }
-            WindowEvent::Resized(_) if w.is_minimized().unwrap_or(false) => {
-                let _ = w.hide();
-            }
+            WindowEvent::Resized(_) if w.is_minimized().unwrap_or(false) => to_tray(&w),
             _ => {}
         }
     });

@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { api, toSrc } from "../api";
 import { EditionPicker } from "../components/EditionPicker";
-import { DOWNLOAD, SourceIcon } from "../components/Glyph";
+import { DOWNLOAD, HDR, SourceIcon } from "../components/Glyph";
 import { GameName } from "../components/GameName";
 import { useHints } from "../components/Hints";
 import { Img } from "../components/Img";
@@ -182,7 +182,7 @@ function actionsFor(game: Game, running: boolean, install: InstallProgress | und
     list.push({
       id: "hdr",
       label: game.hdr ? t("HDR on") : t("HDR"),
-      icon: <><rect x="2.5" y="5" width="19" height="14" rx="2.5" fill={game.hdr ? "currentColor" : "none"} fillOpacity={game.hdr ? 0.18 : 0} /><path d="M6.5 9.5v5M9.5 9.5v5M6.5 12h3M12 9.5v5h1.4a2.5 2.5 0 0 0 0-5zM16.5 14.5v-5h1.7a1.5 1.5 0 0 1 0 3h-1.7M18.2 12.5l1.3 2" /></>,
+      icon: HDR,
       run: () => toggleHdr(game),
     });
   }
@@ -281,6 +281,11 @@ export function Details() {
     setChoosing(null);
     setPickingEdition(false);
     if (!detailsId) return;
+    // Home's trophy button opens the page straight on the list.
+    if (useStore.getState().achievementsAsk === detailsId) {
+      setAchievements(true);
+      useStore.setState({ achievementsAsk: null });
+    }
     let live = true;
     api
       .getDetails(detailsId)

@@ -2,6 +2,7 @@ import { AnimatePresence, motion, type Variants } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Cover } from "../components/Cover";
 import { DOWNLOAD, Glyph, SourceIcon } from "../components/Glyph";
+import { TROPHY } from "../components/AchievementList";
 import { GameName } from "../components/GameName";
 import { useHints } from "../components/Hints";
 import { Img } from "../components/Img";
@@ -9,7 +10,7 @@ import { AchievementsStat, InstallStat, Stat } from "../components/Stat";
 import { t } from "../i18n";
 import { Layer, useInput } from "../input";
 import { ease, spring, useRem, useSettled } from "../motion";
-import { askCancel, closeRunning, gamePassGames, isCatalog, isGame, launch, rescan, setFocus, setSelected, sourceLabel, toggleFavorite, useStore } from "../store";
+import { askCancel, closeRunning, gamePassGames, isCatalog, isGame, launch, rescan, setFocus, setSelected, sourceLabel, toggleFavorite, toggleHdr, useStore } from "../store";
 import type { Game } from "../types";
 import { hours, installLabel, lastPlayed, size } from "../util";
 
@@ -30,11 +31,15 @@ function shelf(games: Game[], justInstalled: string[]): Game[] {
   return [...new Set([...installed, ...recent, ...favs, ...fresh])].slice(0, SHELF_SIZE);
 }
 
-type Button = "play" | "quit" | "details" | "fav" | "progress" | "cancel";
+type Button = "play" | "quit" | "details" | "fav" | "ach" | "hdr" | "progress" | "cancel";
 
-/** A running game gets a close button beside Resume, so it closes from its own card. */
-const buttonsFor = (game: Game | undefined, running: boolean): Button[] =>
-  game && !game.installed ? ["progress", "cancel"] : running ? ["play", "quit", "details", "fav"] : ["play", "details", "fav"];
+/** A running game gets a close button beside Resume, so it closes from its own card. Its
+ *  achievements and HDR are a press away too. */
+const buttonsFor = (game: Game | undefined, running: boolean): Button[] => {
+  if (game && !game.installed) return ["progress", "cancel"];
+  const extra: Button[] = [...(game?.achievements ? (["ach"] as const) : []), "hdr"];
+  return running ? ["play", "quit", "details", "fav", ...extra] : ["play", "details", "fav", ...extra];
+};
 
 const heroVariants: Variants = {
   enter: { opacity: 0 },
@@ -78,8 +83,8 @@ function Hero({ game, running, zone, btn, armed, onPress }: { game: Game; runnin
         {buttons.map((b, n) => (
           <button
             key={b}
-            className={`btn ${b === "play" || b === "progress" ? "btn-play" : b === "quit" && (armed || closing) ? "btn-pill" : "btn-round"} ${b === "progress" ? "has-progress" : ""} ${(b === "cancel" && install?.state === "canceling") || (b === "quit" && closing) ? "is-busy" : ""} ${zone === "hub" && n === btn ? "is-focused" : ""} ${b === "fav" && game.favorite ? "is-on" : ""} ${b === "quit" && armed ? "is-armed" : ""}`}
-            aria-label={b === "quit" ? t("Close game") : undefined}
+            className={`btn ${b === "play" || b === "progress" ? "btn-play" : b === "quit" && (armed || closing) ? "btn-pill" : "btn-round"} ${b === "progress" ? "has-progress" : ""} ${(b === "cancel" && install?.state === "canceling") || (b === "quit" && closing) ? "is-busy" : ""} ${zone === "hub" && n === btn ? "is-focused" : ""} ${(b === "fav" && game.favorite) || (b === "hdr" && game.hdr) ? "is-on" : ""} ${b === "quit" && armed ? "is-armed" : ""}`}
+            aria-label={b === "quit" ? t("Close game") : b === "ach" ? t("Achievements") : b === "hdr" ? (game.hdr ? t("HDR on") : t("HDR")) : undefined}
             style={b === "progress" ? ({ "--progress": (install?.percent ?? 100) / 100 } as React.CSSProperties) : undefined}
             onClick={() => onPress(b)}
           >
@@ -100,6 +105,10 @@ function Hero({ game, running, zone, btn, armed, onPress }: { game: Game; runnin
               </>
             ) : b === "details" ? (
               <svg viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.7" /><circle cx="12" cy="12" r="1.7" /><circle cx="18.5" cy="12" r="1.7" /></svg>
+            ) : b === "ach" ? (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{TROPHY}</svg>
+            ) : b === "hdr" ? (
+              <span className="hdr">HDR</span>
             ) : (
               <svg viewBox="0 0 24 24" className="star"><path d="M12 3.5l2.5 5.4 5.9.6-4.4 4 1.3 5.8L12 16.4l-5.3 2.9L8 13.5l-4.4-4 5.9-.6z" /></svg>
             )}
@@ -197,6 +206,8 @@ export function Home({ active }: { active: boolean }) {
     if (b === "play") launch(game);
     if (b === "details" || b === "progress") useStore.setState({ detailsId: game.id });
     if (b === "fav") toggleFavorite(game);
+    if (b === "ach") useStore.setState({ detailsId: game.id, achievementsAsk: game.id });
+    if (b === "hdr") void toggleHdr(game);
     if (b === "cancel") askCancel(game);
     if (b === "quit") {
       if (closing) return;
@@ -278,6 +289,8 @@ export function Home({ active }: { active: boolean }) {
             ? closing
               ? [["y", "Details"], ["menu", "Control center"]]
               : [["a", armed ? "Confirm" : "Close game"], ["y", "Details"], ["menu", "Control center"]]
+          : zone === "hub" && (buttons[btn] === "ach" || buttons[btn] === "hdr")
+            ? [["a", buttons[btn] === "ach" ? "Achievements" : game.hdr ? "Turn HDR off" : "Turn HDR on"], ["y", "Details"], ["menu", "Control center"]]
           : [["a", isRunning ? "Resume" : "Play"], ["y", "Details"], ["x", game.favorite ? "Unfavorite" : "Favorite"], ["view", "Search"], ["menu", "Control center"]],
     Layer.view,
     active,

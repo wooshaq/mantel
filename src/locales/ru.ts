@@ -602,4 +602,6 @@ export const ru: Catalog = {
   "Browse the Game Pass catalog": "Каталог Game Pass",
   "Achievements come from your public Steam profile": "Достижения берутся из вашего открытого профиля Steam",
   "Mantel doesn't know your Steam profile yet: add it in Settings → Library": "Mantel ещё не знает ваш профиль Steam: добавьте его в Настройки → Библиотека",
+  "Turn HDR off": "Выключить HDR",
+  "Turn HDR on": "Включить HDR",
 };

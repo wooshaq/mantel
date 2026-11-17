@@ -5,6 +5,9 @@ import type { Source } from "../types";
 /** Goes in a stroked 24-unit svg. */
 export const DOWNLOAD = <path d="M12 3.5v12M6.75 10.25 12 15.5l5.25-5.25M4.5 20.5h15" />;
 
+/** A screen with "HDR" on it. */
+export const HDR = <><rect x="2.5" y="5" width="19" height="14" rx="2.5" /><path d="M6.5 9.5v5M9.5 9.5v5M6.5 12h3M12 9.5v5h1.4a2.5 2.5 0 0 0 0-5zM16.5 14.5v-5h1.7a1.5 1.5 0 0 1 0 3h-1.7M18.2 12.5l1.3 2" /></>;
+
 export type Button = "a" | "b" | "x" | "y" | "lb" | "rb" | "lt" | "rt" | "menu" | "view" | "dpad" | "stick";
 
 /** The keyboard's stand-in for each button (input.ts maps them). */

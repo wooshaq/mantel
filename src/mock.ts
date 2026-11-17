@@ -293,7 +293,7 @@ export const mockApi: Api = {
       unlockedAt: i < unlocked ? now - i * DAY : null,
       rarity: Math.round(((i * 37) % 90) * 10 + 7) / 10,
       gamerscore: g.source === "xbox" ? 10 + (i % 4) * 5 : null,
-      secret: i >= unlocked && i % 7 === 3,
+      secret: false,
     }));
   },
   async refreshSteamAchievements() {

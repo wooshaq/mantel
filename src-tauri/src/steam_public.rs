@@ -224,7 +224,8 @@ fn achievement(appid: u32, a: &Value, unlocked_at: Option<i64>) -> Option<Achiev
         unlocked_at: unlocked_at.filter(|t| *t > 0),
         rarity: a.get("player_percent_unlocked").and_then(Value::as_str).and_then(|p| p.parse().ok()),
         gamerscore: None,
-        secret: !got && a.get("hidden").and_then(Value::as_bool).unwrap_or(false),
+        // Hidden ones show their name and description too: Steam sends both.
+        secret: false,
     })
 }
 

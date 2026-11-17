@@ -584,9 +584,7 @@ fn started(app: &AppHandle, id: &str) -> bool {
     crate::log::info(&format!("{what} {id} (from mantel: {from_mantel})"));
     let _ = app.emit("game-started", id);
     if from_mantel && state.user.lock().unwrap().settings.minimize_on_launch {
-        if let Some(w) = app.get_webview_window("main") {
-            let _ = w.minimize();
-        }
+        crate::tray::step_aside(app);
     }
     from_mantel
 }
@@ -670,6 +668,8 @@ fn front_game(_sys: &System, _targets: &[Target]) -> Option<String> {
 /// Puts Mantel back in front of whatever the player was sent to.
 pub fn to_front(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
+        // Back on the taskbar, if the tray took it off.
+        let _ = w.set_skip_taskbar(false);
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();

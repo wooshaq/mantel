@@ -65,6 +65,8 @@ interface State {
   cancelAsk: string | null;
   /** The game Windows is removing right now. */
   uninstalling: string | null;
+  /** The game page is to open with its achievements list showing. */
+  achievementsAsk: string | null;
   loaded: boolean;
   scanning: boolean;
   settings: Settings | null;
@@ -109,6 +111,7 @@ export const useStore = create<State>(() => ({
   watching: false,
   cancelAsk: null,
   uninstalling: null,
+  achievementsAsk: null,
   loaded: false,
   scanning: false,
   settings: null,
