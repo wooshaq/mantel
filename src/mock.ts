@@ -1,6 +1,6 @@
 // Stand-in backend for developing the UI in a regular browser.
 import type { Api, GameEvent } from "./api";
-import type { Achievements, AppChoice, Art, Game, Quick, Running, Settings, Source, SteamProfile } from "./types";
+import type { Achievements, AppChoice, Art, Game, Hltb, Quick, Running, Session, Settings, Source, SteamProfile, UnlockTimes } from "./types";
 
 const cdn = (id: number): Art => {
   const base = `https://cdn.cloudflare.steamstatic.com/steam/apps/${id}`;
@@ -71,6 +71,8 @@ let games: Game[] = seeds.map(([source, name, appid, minutes, days], i) => ({
   installed: i !== 14 && i !== 16,
   achievements: achievementsFor(source, i, minutes),
 }));
+// One linked to HowLongToBeat, to show its times on Home and the game page.
+games[0] = { ...games[0], hltb: { id: 2127, name: games[0].name, main: 25 * 3600, plus: 63 * 3600, full: 104 * 3600 } };
 
 // Apps for the browser: the real thing reads icons and colours from the installed apps.
 const wiki = (path: string) => `https://upload.wikimedia.org/wikipedia/commons/thumb/${path}/330px-${path.split("/").pop()}.png`;
@@ -311,6 +313,27 @@ export const mockApi: Api = {
     return { ...steamProfile };
   },
   async setTray() {},
+  async getSessions() {
+    return sampleSessions();
+  },
+  async achievementTimes() {
+    return sampleUnlocks();
+  },
+  async setHltb(id, input) {
+    await wait(700);
+    if (!input.trim()) {
+      games = games.map((g) => (g.id === id ? { ...g, hltb: null } : g));
+      return null;
+    }
+    const hid = Number(input.match(/(\d+)/)?.[1]);
+    if (!hid) throw "That isn't a HowLongToBeat game link";
+    const h: Hltb = { id: hid, name: "Sample", main: 19 * 3600, plus: 23 * 3600, full: 27 * 3600 };
+    games = games.map((g) => (g.id === id ? { ...g, hltb: h } : g));
+    return h;
+  },
+  async refreshHltb() {
+    return false;
+  },
   async hideWindow() {},
   async setFlag(id, flag, value) {
     games = games.map((g) => (g.id === id ? { ...g, [flag]: value } : g));
@@ -605,3 +628,37 @@ export const mockApi: Api = {
     return () => listeners.get(event)?.delete(cb);
   },
 };
+
+/** A few months of sample play across the first games, the same on every call. */
+function sampleSessions(): Session[] {
+  let seed = 3;
+  const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+  const ids = games.filter((g) => g.installed && !g.kind).slice(0, 6).map((g) => g.id);
+  const out: Session[] = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  for (let d = 200; d >= 0; d--) {
+    if (rnd() < 0.45) continue;
+    const day = today.getTime() / 1000 - d * 86400;
+    let at = day + 17 * 3600 + Math.floor(rnd() * 4) * 3600;
+    const n = 1 + Math.floor(rnd() * 2);
+    for (let k = 0; k < n; k++) {
+      const len = 900 + Math.floor(rnd() * 9000);
+      out.push({ game: ids[Math.floor(rnd() * ids.length)], start: at, end: at + len });
+      at += len + 1200;
+    }
+  }
+  return out;
+}
+
+function sampleUnlocks(): UnlockTimes[] {
+  let seed = 5;
+  const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+  const byGame = new Map<string, number[]>();
+  for (const s of sampleSessions()) if (s.game.startsWith("steam:") && rnd() < 0.35) {
+    const list = byGame.get(s.game) ?? [];
+    for (let i = 0, n = 1 + Math.floor(rnd() * 3); i < n; i++) list.push(s.start + Math.floor(rnd() * (s.end - s.start)));
+    byGame.set(s.game, list);
+  }
+  return [...byGame].map(([game, times]) => ({ game, times }));
+}

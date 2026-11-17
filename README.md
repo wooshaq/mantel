@@ -38,6 +38,12 @@ TV PC.
   and a game's page lists each achievement with its rarity and the date you unlocked it
   (Settings → Library → Steam achievements). No sign-in: the profile's game details only
   have to be public.
+- **Statistics.** The first tab is a calendar of the year: each day's colour is the time
+  played, its number the Steam achievements unlocked. Under it, the month day by day, split by
+  game. Mantel writes every session down from wsq.9 on; achievement dates go back further.
+- **Play history and HowLongToBeat.** A game's page lists every day it was played, with the
+  breaks between. Link the game to its HowLongToBeat page once and Home and the page show how
+  much of the story is left.
 - **HDR for the games that want it.** A game's page turns HDR on for that game: Mantel
   switches it on before the game starts and back off when it ends, through Windows or the
   NVIDIA driver (Settings → System).
@@ -90,6 +96,9 @@ Mantel has no servers, sends no telemetry and signs in to no account. It talks o
   played: it asks for the public profile of the account Steam last signed in with on this PC
   (read from Steam's `loginusers.vdf`), or the profile you enter. Nothing is sent but the
   SteamID and the game's app id.
+- **HowLongToBeat**, only for games you link to it: Mantel reads the public page of each linked
+  game, about every two weeks. HowLongToBeat has no API and blocks apps from its search, so
+  Mantel never searches it; the link opens its search in your browser.
 - **Store catalogs.** Microsoft's public Game Pass and Store catalogs and Steam's store, for
   the lists to browse and for search, which sends them what you type. No account is involved
   in reading them.
@@ -99,7 +108,8 @@ Mantel has no servers, sends no telemetry and signs in to no account. It talks o
   if you add a key, SteamGridDB.
 
 Everything stays on your PC in `%APPDATA%\com.playmantel.launcher\`: `user.json` holds
-settings, favorites and playtime; `cache.json` can be deleted at any time. Sign-ins an older
+settings, favorites and playtime; `sessions.json` the log of sessions the statistics are drawn
+from; `cache.json` can be deleted at any time. Sign-ins an older
 version saved are deleted from `user.json` on the first start of this one, along with a Steam
 session in Mantel's WebView.
 

@@ -605,6 +605,11 @@ fn finish(app: &AppHandle, id: &str, session: &Session) {
         }
         meta.last_played = Some(now());
         state.save_user(&user);
+        drop(user);
+        if !an_app {
+            let end = now();
+            state.log_session(crate::store::Session { game: id.to_string(), start: end - seconds as i64, end });
+        }
     }
     state.running.lock().unwrap().retain(|r| r.id != id);
     PIDS.lock().unwrap().remove(id);

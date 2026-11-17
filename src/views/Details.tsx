@@ -8,6 +8,8 @@ import { useHints } from "../components/Hints";
 import { Img } from "../components/Img";
 import { AchievementsStat, InstallStat, Stat } from "../components/Stat";
 import { AchievementList, TROPHY } from "../components/AchievementList";
+import { PlayHistory } from "../components/PlayHistory";
+import { KeyFlow } from "../components/KeyFlow";
 import { ArtPicker } from "../components/ArtPicker";
 import { PackagePicker } from "../components/PackagePicker";
 import { useScrollFocus } from "../hooks";
@@ -105,7 +107,48 @@ function useStoreGame(id: string | null): StoreGame {
   return { found, owned, onAccount, asking: id !== null && (found === undefined || (!onAccount && editions.some((e) => !(e.id in owned)))) };
 }
 
-function actionsFor(game: Game, running: boolean, install: InstallProgress | undefined, offAccount: boolean, store: StoreGame, showEditions: () => void, beginInstall: (anyway?: boolean) => void, showAchievements: () => void, pickArt: () => void): Action[] {
+const CLOCK = <><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></>;
+const HOURGLASS = <path d="M7 3.5h10M7 20.5h10M8 3.5c0 4.5 8 5 8 8.5s-8 4-8 8.5M16 3.5c0 4.5-8 5-8 8.5s8 4 8 8.5" />;
+
+/** HowLongToBeat's three times, with where the player is on them. */
+function HltbCard({ game }: { game: Game }) {
+  const h = game.hltb!;
+  const rows = [
+    [t("Main story"), h.main],
+    [t("Main + extras"), h.plus],
+    [t("Completionist"), h.full],
+  ].filter(([, s]) => (s as number) > 0) as [string, number][];
+  const max = Math.max(...rows.map(([, s]) => s));
+  const played = game.playtimeMinutes * 60;
+  const at = Math.min(1, played / max);
+  const left = h.main - played;
+  return (
+    <div className="hltb">
+      <div className="hltb-head">
+        <span className="eyebrow">{t("How long to beat")}</span>
+        <span className="hltb-source">HowLongToBeat</span>
+      </div>
+      <div className="hltb-rows" style={{ "--at": at } as React.CSSProperties}>
+        {rows.map(([label, s]) => (
+          <div className="hltb-row" key={label}>
+            <span>{label}</span>
+            <span className="hltb-bar"><span style={{ width: `${(100 * s) / max}%` }} /></span>
+            <b>{t("{h} h", { h: Math.round(s / 3600) })}</b>
+          </div>
+        ))}
+        {played > 0 && <span className="hltb-you" />}
+      </div>
+      {h.main > 0 && (
+        <div className="hltb-foot">
+          <span><b>{t("You: {h} h", { h: Math.round(played / 3600) })}</b> · {t("{p}% of the story", { p: Math.min(100, Math.round((100 * played) / h.main)) })}</span>
+          {left > 1800 && <span>{t("About {h} h left", { h: Math.round(left / 3600) })}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function actionsFor(game: Game, running: boolean, install: InstallProgress | undefined, offAccount: boolean, store: StoreGame, showEditions: () => void, beginInstall: (anyway?: boolean) => void, showAchievements: () => void, pickArt: () => void, showHistory: () => void, linkHltb: () => void): Action[] {
   if (isStoreItem(game) && game.source === "steam") {
     return [{
       id: "store",
@@ -177,6 +220,10 @@ function actionsFor(game: Game, running: boolean, install: InstallProgress | und
   }
   if (game.achievements) {
     list.push({ id: "achievements", label: t("Achievements"), icon: TROPHY, run: showAchievements });
+  }
+  if (isGame(game) && !isCatalog(game) && !isStoreItem(game)) {
+    list.push({ id: "history", label: t("Play history"), icon: CLOCK, run: showHistory });
+    list.push({ id: "hltb", label: game.hltb ? "HowLongToBeat" : t("How long to beat"), icon: HOURGLASS, run: linkHltb });
   }
   if (game.installed && isGame(game)) {
     list.push({
@@ -251,6 +298,8 @@ export function Details() {
   const [achFromHome, setAchFromHome] = useState(false);
   const [achError, setAchError] = useState<string | null>(null);
   const [pickingArt, setPickingArt] = useState(false);
+  const [history, setHistory] = useState(false);
+  const [linking, setLinking] = useState(false);
   const [armed, setArmed] = useState(false);
   const [paused, setPaused] = useState(false);
   const [choosing, setChoosing] = useState<{ items: BundleItem[]; anyway: boolean } | null>(null);
@@ -278,6 +327,8 @@ export function Details() {
     setAchList(null);
     setAchError(null);
     setPickingArt(false);
+    setHistory(false);
+    setLinking(false);
     setArmed(false);
     setPaused(false);
     setChoosing(null);
@@ -343,7 +394,7 @@ export function Details() {
     if (details?.items?.length) setChoosing({ items: details.items, anyway });
     else startInstall(game, anyway);
   };
-  const actions = game ? actionsFor(game, running.some((r) => r.id === game.id), install, offAccount, storeGame, () => setPickingEdition(true), beginInstall, () => setAchievements(true), () => setPickingArt(true)) : [];
+  const actions = game ? actionsFor(game, running.some((r) => r.id === game.id), install, offAccount, storeGame, () => setPickingEdition(true), beginInstall, () => setAchievements(true), () => setPickingArt(true), () => setHistory(true), () => setLinking(true)) : [];
   // A running game closes from its own page; uninstalling waits until it's closed.
   if (game?.installed && running.some((r) => r.id === game.id)) {
     actions.splice(1, 0, {
@@ -506,6 +557,8 @@ export function Details() {
           ))}
         </motion.div>
 
+        {game.hltb && <motion.div {...enter(0.25)}><HltbCard game={game} /></motion.div>}
+
         {isCatalog(game) && game.tags?.includes("external") ? (
           <p className="details-note is-info">{t("This game installs through its publisher's launcher. The Xbox app can start the install.")}</p>
         ) : (
@@ -603,6 +656,31 @@ export function Details() {
       )}
 
       <AnimatePresence>{pickingArt && <ArtPicker game={game} onClose={() => setPickingArt(false)} />}</AnimatePresence>
+      <AnimatePresence>{history && <PlayHistory game={game} onClose={() => setHistory(false)} />}</AnimatePresence>
+      {linking && (
+        <KeyFlow
+          kind="link"
+          service="HowLongToBeat"
+          title={t("How long to beat {name}", { name: game.name })}
+          intro={t("HowLongToBeat has no way for apps to look games up, so link the game once: Mantel then reads its times by itself.")}
+          howTo={[t("Open HowLongToBeat: it searches for this game"), t("Open the right game and copy the page's address"), t("Come back here and paste it")]}
+          url={`https://howlongtobeat.com/?q=${encodeURIComponent(game.name)}`}
+          site="howlongtobeat.com"
+          connected={!!game.hltb}
+          status={game.hltb ? `${game.hltb.name} · ${t("{h} h", { h: Math.round(game.hltb.main / 3600) })}` : undefined}
+          onSubmit={async (link) => {
+            const hltb = await api.setHltb(game.id, link);
+            useStore.setState((s) => ({ games: s.games.map((g) => (g.id === game.id ? { ...g, hltb } : g)) }));
+            toast(t("Linked {name} to HowLongToBeat", { name: game.name }), "good");
+          }}
+          disconnectLabel={t("Unlink")}
+          onDisconnect={async () => {
+            await api.setHltb(game.id, "");
+            useStore.setState((s) => ({ games: s.games.map((g) => (g.id === game.id ? { ...g, hltb: null } : g)) }));
+          }}
+          onClose={() => setLinking(false)}
+        />
+      )}
 
       <AnimatePresence>{achievements && <AchievementList game={game} list={achList} error={achError} onClose={() => (achFromHome ? useStore.setState({ detailsId: null }) : setAchievements(false))} />}</AnimatePresence>
 

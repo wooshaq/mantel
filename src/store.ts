@@ -6,7 +6,7 @@ import { setSoundEnabled, sound } from "./sound";
 import type { AccountsStatus, Editions, Game, InstallProgress, Running, Settings, StoreHome, StoreShelf } from "./types";
 import { accentFor, baseTitle, DEFAULT_ACCENT, money, SOURCE_NAME } from "./util";
 
-export type View = "home" | "apps" | "library" | "steam" | "gamepass" | "settings";
+export type View = "stats" | "home" | "apps" | "library" | "steam" | "gamepass" | "settings";
 export type Overlay = "menu" | "search" | null;
 
 export interface Updating {
@@ -437,6 +437,7 @@ export async function rescan(quiet = false) {
     // Games from other stores that matched a Steam page get its art too, Steam turned on or not.
     if (get().games.some((g) => g.steamAppId) && (await api.resolveSteamFacts().catch(() => false))) set({ games: await api.getLibrary(false) });
     void refreshAchievements();
+    if (await api.refreshHltb().catch(() => false)) set({ games: await api.getLibrary(false) });
     set({ accounts: await api.accountsStatus() });
     await loadCatalog();
     void loadSteamStore();

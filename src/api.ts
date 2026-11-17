@@ -1,4 +1,4 @@
-import type { AccountsStatus, Achievement, AppChoice, DisplayMode, ArtChoices, ArtKind, Details, Editions, Game, InstallProgress, Listing, Power, Quick, Running, Settings, SteamProfile, StoreHit, StoreHome, StorePage, StoreShelf, Suggestion } from "./types";
+import type { AccountsStatus, Achievement, AppChoice, DisplayMode, ArtChoices, ArtKind, Details, Editions, Game, InstallProgress, Listing, Power, Quick, Running, Session, Settings, SteamProfile, StoreHit, UnlockTimes, Hltb, StoreHome, StorePage, StoreShelf, Suggestion } from "./types";
 import { mockApi } from "./mock";
 import { steamLanguage } from "./i18n";
 
@@ -42,6 +42,14 @@ export interface Api {
   setTray(on: boolean, show: string, quit: string): Promise<void>;
   /** Hides Mantel: into the tray when it's on, else minimized. */
   hideWindow(): Promise<void>;
+  /** Every session played, oldest first. */
+  getSessions(): Promise<Session[]>;
+  /** When each Steam achievement was unlocked, by game. */
+  achievementTimes(): Promise<UnlockTimes[]>;
+  /** Links a game to its HowLongToBeat page by the page's address; "" unlinks it. */
+  setHltb(id: string, input: string): Promise<Hltb | null>;
+  /** Reads again HowLongToBeat times a couple of weeks old; whether any changed. */
+  refreshHltb(): Promise<boolean>;
   setFlag(id: string, flag: "favorite" | "hidden" | "hdr", value: boolean): Promise<void>;
   getSettings(): Promise<Settings>;
   saveSettings(settings: Settings): Promise<void>;
@@ -129,6 +137,10 @@ const tauriApi: Api = {
   setSteamId: (input) => call("set_steam_id", { input }),
   setTray: (on, show, quit) => call("set_tray", { on, show, quit }),
   hideWindow: () => call("hide_window"),
+  getSessions: () => call("get_sessions"),
+  achievementTimes: () => call("achievement_times"),
+  setHltb: (id, input) => call("set_hltb", { id, input }),
+  refreshHltb: () => call("refresh_hltb"),
   setFlag: (id, flag, value) => call("set_flag", { id, flag, value }),
   getSettings: () => call("get_settings"),
   saveSettings: (settings) => call("save_settings", { settings }),

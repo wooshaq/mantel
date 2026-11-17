@@ -6,7 +6,7 @@ import { TROPHY } from "../components/AchievementList";
 import { GameName } from "../components/GameName";
 import { useHints } from "../components/Hints";
 import { Img } from "../components/Img";
-import { AchievementsStat, InstallStat, Stat } from "../components/Stat";
+import { AchievementsStat, HltbStat, InstallStat, Stat } from "../components/Stat";
 import { t } from "../i18n";
 import { Layer, useInput } from "../input";
 import { ease, spring, useRem, useSettled } from "../motion";
@@ -14,7 +14,7 @@ import { askCancel, closeRunning, gamePassGames, isCatalog, isGame, launch, resc
 import type { Game } from "../types";
 import { hours, installLabel, lastPlayed, size } from "../util";
 
-const SHELF_SIZE = 18;
+const SHELF_SIZE = 35;
 const LIBRARY_KEY = "library";
 /** Card geometry in rem; mirrors .shelf .cover in CSS. */
 const CARD_W = 10.2;
@@ -75,7 +75,7 @@ function Hero({ game, running, zone, btn, armed, onPress }: { game: Game; runnin
             <Stat value={played ? hours(played) : "—"} unit={played ? (played >= 60 ? t("h") : t("min")) : undefined} label={t("Played")} />
             <Stat value={lastPlayed(game.lastPlayed, game.playtimeMinutes > 0)} label={t("Last played")} />
             {game.achievements && <AchievementsStat a={game.achievements} />}
-            <Stat value={size(game.sizeBytes)} label={t("On disk")} />
+            {game.hltb && game.hltb.main > 0 ? <HltbStat h={game.hltb} minutes={played} /> : <Stat value={size(game.sizeBytes)} label={t("On disk")} />}
           </>
         )}
       </motion.div>
@@ -341,6 +341,9 @@ export function Home({ active }: { active: boolean }) {
       <div className="shelf" data-dir={dir > 0 ? "r" : "l"}>
         <motion.div className="shelf-glow" animate={{ x: 0 }} transition={spring.rail} />
         {[...list, null].map((g, i) => {
+          // Cards well off screen aren't drawn at all: a long shelf costs no more per move than
+          // a short one. A card coming into view starts where it belongs.
+          if (i < c - 2 || xOf(i) > 125 * rem + 2 * step) return null;
           const focused = i === c;
           // Only the edge of the previous card shows, dimmed, so the shelf shows it goes on that way.
           const peek = i === c - 1;

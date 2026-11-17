@@ -79,6 +79,8 @@ pub struct GameMeta {
     pub art: Art,
     /// HDR on while the game runs.
     pub hdr: bool,
+    /// The game's page on HowLongToBeat, linked by the player.
+    pub hltb: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,6 +138,17 @@ pub struct Cache {
     pub steam_facts: crate::steam_store::Facts,
     /// Achievement progress from the public Steam profile, by app id.
     pub steam_public: HashMap<u32, crate::steam_public::Progress>,
+    /// Times read from HowLongToBeat, by its game id.
+    pub hltb: HashMap<u32, crate::hltb::Hltb>,
+}
+
+/// One stretch of play, as the tracker saw it: start and end in Unix seconds.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Session {
+    pub game: String,
+    pub start: i64,
+    pub end: i64,
 }
 
 pub struct AppState {
@@ -148,10 +161,14 @@ pub struct AppState {
     pub app_choices: Mutex<Vec<crate::apps::AppEntry>>,
     /// An older version was signed in to Steam, whose session lives in the WebView's cookies.
     pub legacy_steam_session: bool,
+    /// Every session played since this was added, oldest first. Kept apart from the cache,
+    /// which can be thrown away, and from the settings, which are read far more often.
+    pub sessions: Mutex<Vec<Session>>,
 }
 
 const USER_FILE: &str = "user.json";
 const CACHE_FILE: &str = "cache.json";
+const SESSIONS_FILE: &str = "sessions.json";
 
 impl AppState {
     pub fn load(dir: PathBuf) -> Self {
@@ -162,6 +179,7 @@ impl AppState {
             running: Mutex::new(Vec::new()),
             app_choices: Mutex::new(Vec::new()),
             legacy_steam_session: false,
+            sessions: Mutex::new(read_json(&dir.join(SESSIONS_FILE))),
             dir,
         };
         // Sign-ins are gone from this build: tokens an older version kept are deleted from disk
@@ -193,6 +211,13 @@ impl AppState {
 
     pub fn save_cache(&self, cache: &Cache) {
         write_json(&self.dir.join(CACHE_FILE), cache);
+    }
+
+    /// Adds a finished session to the play log.
+    pub fn log_session(&self, session: Session) {
+        let mut sessions = self.sessions.lock().unwrap();
+        sessions.push(session);
+        write_json(&self.dir.join(SESSIONS_FILE), &*sessions);
     }
 }
 

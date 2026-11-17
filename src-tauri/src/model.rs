@@ -167,6 +167,9 @@ pub struct Game {
     /// The player wants HDR switched on while this game runs.
     #[serde(default)]
     pub hdr: bool,
+    /// How long it takes, from the HowLongToBeat page the player linked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hltb: Option<crate::hltb::Hltb>,
 }
 
 fn installed_default() -> bool {
@@ -207,6 +210,7 @@ impl Game {
             color: None,
             site: None,
             hdr: false,
+            hltb: None,
         }
     }
 }

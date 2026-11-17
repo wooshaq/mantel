@@ -1,3 +1,4 @@
+#![cfg_attr(not(windows), allow(dead_code))]
 //! Which screen shows the picture: the handheld's own or an external one, as Windows+P and
 //! DisplaySwitch.exe switch it. Done through the same Windows call DisplaySwitch makes, with
 //! no program started.

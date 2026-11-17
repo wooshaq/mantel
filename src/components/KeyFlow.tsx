@@ -18,7 +18,16 @@ const ICONS: Record<Step, React.ReactNode> = {
 };
 
 /** What the flow asks for: an API key, or a link to a profile. */
-function wordsFor(kind: "key" | "profile", service: string, site: string) {
+function wordsFor(kind: "key" | "profile" | "link", service: string, site: string) {
+  if (kind === "link")
+    return {
+      empty: t("The clipboard is empty. Copy the game's link first."),
+      opened: t("Opened {site} in the browser. Find the game, copy its link, then come back.", { site }),
+      checking: t("Checking the link…"),
+      paste: t("Paste the game's link from clipboard"),
+      type: t("Type the game's link"),
+      prompt: t("{service} link", { service }),
+    };
   return kind === "key"
     ? {
         empty: t("The clipboard is empty. Copy the key first."),
@@ -68,8 +77,8 @@ export function KeyFlow({
   onSubmit: (key: string) => Promise<void>;
   onDisconnect?: () => Promise<void>;
   onClose: () => void;
-  /** A key by default; "profile" asks for a profile link instead. */
-  kind?: "key" | "profile";
+  /** A key by default; "profile" asks for a profile link, "link" for a page's address. */
+  kind?: "key" | "profile" | "link";
   disconnectLabel?: string;
 }) {
   const words = wordsFor(kind, service, site);

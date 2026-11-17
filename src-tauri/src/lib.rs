@@ -3,6 +3,7 @@ mod display;
 mod art;
 mod fse;
 mod gamepass;
+mod hltb;
 mod hdr;
 mod icons;
 mod install;
@@ -40,6 +41,9 @@ fn snapshot(state: &AppState) -> Vec<Game> {
     library::apply_meta(&mut games, &user, &cache.art);
     for g in games.iter_mut() {
         cache.steam_facts.apply(g);
+    }
+    for g in games.iter_mut() {
+        g.hltb = user.meta.get(&g.id).and_then(|m| m.hltb).and_then(|id| cache.hltb.get(&id)).cloned();
     }
     // Without a Steam sign-in, progress comes from the public profile.
     for g in games.iter_mut().filter(|g| g.source == "steam" && g.achievements.is_none()) {
@@ -469,10 +473,11 @@ async fn get_achievements(state: State<'_, AppState>, id: String, language: Opti
     }
     let appid: u32 = game.source_id.parse().map_err(|_| "Unknown Steam app")?;
     let (sid, _) = steam_id(&state).ok_or("Mantel doesn't know your Steam profile yet: add it in Settings → Library")?;
-    let (list, progress) = steam_public::list(sid, appid, language.as_deref().unwrap_or("english")).await?;
+    let (list, progress, times) = steam_public::list(sid, appid, language.as_deref().unwrap_or("english")).await?;
     let mut cache = state.cache.lock().unwrap();
     let p = cache.steam_public.entry(appid).or_default();
     p.at = now();
+    p.times = times;
     p.total = progress.total;
     p.total_at = now();
     p.achievements = (progress.total > 0).then_some(progress);
@@ -922,6 +927,83 @@ fn hide_window(app: AppHandle) {
     tray::step_aside(&app);
 }
 
+/// Every session played, oldest first, for the statistics and each game's history.
+#[tauri::command]
+fn get_sessions(state: State<'_, AppState>) -> Vec<store::Session> {
+    state.sessions.lock().unwrap().clone()
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnlockTimes {
+    game: String,
+    times: Vec<i64>,
+}
+
+/// When each Steam achievement was unlocked, by game, from the public profile.
+#[tauri::command]
+fn achievement_times(state: State<'_, AppState>) -> Vec<UnlockTimes> {
+    state
+        .cache
+        .lock()
+        .unwrap()
+        .steam_public
+        .iter()
+        .filter(|(_, p)| !p.times.is_empty())
+        .map(|(appid, p)| UnlockTimes { game: format!("steam:{appid}"), times: p.times.clone() })
+        .collect()
+}
+
+/// Links a game to its HowLongToBeat page from the page's address; empty unlinks it.
+#[tauri::command]
+async fn set_hltb(state: State<'_, AppState>, id: String, input: String) -> Result<Option<hltb::Hltb>, String> {
+    if input.trim().is_empty() {
+        let mut user = state.user.lock().unwrap();
+        user.meta.entry(id).or_default().hltb = None;
+        state.save_user(&user);
+        return Ok(None);
+    }
+    let hid = hltb::parse_id(&input).ok_or("That isn't a HowLongToBeat game link")?;
+    let found = hltb::fetch(hid).await?;
+    {
+        let mut user = state.user.lock().unwrap();
+        user.meta.entry(id).or_default().hltb = Some(hid);
+        state.save_user(&user);
+    }
+    let mut cache = state.cache.lock().unwrap();
+    cache.hltb.insert(hid, found.clone());
+    state.save_cache(&cache);
+    Ok(Some(found))
+}
+
+/// Reads again the HowLongToBeat times that are a couple of weeks old. Whether any changed.
+#[tauri::command]
+async fn refresh_hltb(state: State<'_, AppState>) -> Result<bool, String> {
+    let stale: Vec<u32> = {
+        let user = state.user.lock().unwrap();
+        let cache = state.cache.lock().unwrap();
+        let t = now();
+        let mut ids: Vec<u32> = user.meta.values().filter_map(|m| m.hltb).filter(|id| cache.hltb.get(id).is_none_or(|h| t - h.at > hltb::FRESH_SECS)).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    };
+    let mut changed = false;
+    // One at a time: HowLongToBeat is a small site.
+    for hid in stale {
+        match hltb::fetch(hid).await {
+            Ok(found) => {
+                let mut cache = state.cache.lock().unwrap();
+                changed |= cache.hltb.get(&hid).is_none_or(|h| (h.main, h.plus, h.full) != (found.main, found.plus, found.full));
+                cache.hltb.insert(hid, found);
+                state.save_cache(&cache);
+            }
+            Err(e) => log::warn(&format!("hltb {hid}: {e}")),
+        }
+    }
+    Ok(changed)
+}
+
 /// The notification-area icon, on or off, with its menu in the interface's language.
 #[tauri::command]
 fn set_tray(app: AppHandle, on: bool, show: String, quit: String) -> Result<(), String> {
@@ -1056,6 +1138,10 @@ pub fn run() {
             steam_profile,
             set_steam_id,
             set_tray,
+            get_sessions,
+            achievement_times,
+            set_hltb,
+            refresh_hltb,
             hide_window,
             set_flag,
             get_settings,

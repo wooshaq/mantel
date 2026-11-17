@@ -1,5 +1,5 @@
 import { t } from "../i18n";
-import type { Achievements, InstallProgress } from "../types";
+import type { Achievements, Hltb, InstallProgress } from "../types";
 import { size, speedText, timeLeft } from "../util";
 
 export function Stat({ value, unit, label }: { value: string; unit?: string; label: string }) {
@@ -40,6 +40,26 @@ export function AchievementsStat({ a }: { a: Achievements }) {
       <div className="stat-label">{t("Achievements")}</div>
       <div className="stat-meter">
         <span style={{ width: `${a.percent}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/** How much of the main story is left by HowLongToBeat, against the time played. */
+export function HltbStat({ h, minutes }: { h: Hltb; minutes: number }) {
+  const main = h.main / 3600;
+  const played = minutes / 60;
+  const left = main - played;
+  const [value, label] = left >= 0.5 ? [`~${Math.round(left)}`, t("Story left")] : [`${Math.round(main)}`, t("Story · HLTB")];
+  return (
+    <div className="stat stat-achievements stat-hltb">
+      <div className="stat-value">
+        {value}
+        <span className="stat-unit">{t("h")}</span>
+      </div>
+      <div className="stat-label">{label}</div>
+      <div className="stat-meter">
+        <span style={{ width: `${Math.min(100, Math.round((100 * played) / main))}%` }} />
       </div>
     </div>
   );

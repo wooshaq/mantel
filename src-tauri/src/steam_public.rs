@@ -30,6 +30,8 @@ pub struct Progress {
     /// How many achievements the game has, and when that was last asked.
     pub total: u32,
     pub total_at: i64,
+    /// When each unlocked achievement was unlocked, for the calendar. 0 where Steam doesn't say.
+    pub times: Vec<i64>,
 }
 
 /// What the player's profile shows, for the settings page.
@@ -152,7 +154,9 @@ pub async fn refresh(steam_id: u64, appids: Vec<u32>, known: &HashMap<u32, Progr
         .into_iter()
         .filter_map(|id| {
             let p = known.get(&id).cloned().unwrap_or_default();
-            (t - p.at > FRESH_SECS).then_some((id, p))
+            // Answers from before unlock times were kept are asked again once.
+            let no_times = p.achievements.as_ref().is_some_and(|a| a.unlocked > 0) && p.times.is_empty();
+            (t - p.at > FRESH_SECS || no_times).then_some((id, p))
         })
         .collect();
     futures::stream::iter(stale)
@@ -171,6 +175,7 @@ pub async fn refresh(steam_id: u64, appids: Vec<u32>, known: &HashMap<u32, Progr
                 }
             }
             p.at = t;
+            p.times = mine.as_ref().map(|m| sorted_times(m.values())).unwrap_or_default();
             p.achievements = mine.and_then(|m| progress(m.len() as u32, p.total));
             Some((appid, p))
         })
@@ -178,6 +183,12 @@ pub async fn refresh(steam_id: u64, appids: Vec<u32>, known: &HashMap<u32, Progr
         .filter_map(|x| async { x })
         .collect()
         .await
+}
+
+pub fn sorted_times<'a>(times: impl Iterator<Item = &'a i64>) -> Vec<i64> {
+    let mut v: Vec<i64> = times.copied().collect();
+    v.sort_unstable();
+    v
 }
 
 fn progress(unlocked: u32, total: u32) -> Option<Achievements> {
@@ -190,7 +201,7 @@ fn progress(unlocked: u32, total: u32) -> Option<Achievements> {
 
 /// Every achievement of a game, unlocked ones first, newest first, with when. Err when the
 /// profile shows nothing for the game.
-pub async fn list(steam_id: u64, appid: u32, language: &str) -> Result<(Vec<Achievement>, Achievements), String> {
+pub async fn list(steam_id: u64, appid: u32, language: &str) -> Result<(Vec<Achievement>, Achievements, Vec<i64>), String> {
     let (mine, schema) = futures::join!(unlocked(steam_id, appid), schema(appid, language));
     let mine = mine?.ok_or("Your Steam profile doesn't show this game: make its game details public")?;
     let schema = schema?;
@@ -208,7 +219,7 @@ pub async fn list(steam_id: u64, appid: u32, language: &str) -> Result<(Vec<Achi
     list.sort_by_key(|a| (!a.unlocked, std::cmp::Reverse(a.unlocked_at.unwrap_or(0))));
     let total = counted(&schema);
     let got = list.iter().filter(|a| a.unlocked).count() as u32;
-    Ok((list, progress(got, total).unwrap_or_default()))
+    Ok((list, progress(got, total).unwrap_or_default(), sorted_times(mine.values())))
 }
 
 fn achievement(appid: u32, a: &Value, unlocked_at: Option<i64>) -> Option<Achievement> {

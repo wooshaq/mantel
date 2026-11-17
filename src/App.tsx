@@ -22,6 +22,7 @@ import { Apps } from "./views/Apps";
 import { Home } from "./views/Home";
 import { Library } from "./views/Library";
 import { Settings } from "./views/Settings";
+import { Stats } from "./views/Stats";
 import { Setup } from "./views/Setup";
 import { Steam } from "./views/Steam";
 
@@ -34,6 +35,7 @@ const LibraryTab = memo(Library);
 const SteamTab = memo(Steam);
 const XboxTab = memo(GamePass);
 const SettingsTab = memo(Settings);
+const StatsTab = memo(Stats);
 const Page = memo(Details);
 const Menu = memo(QuickMenu);
 const SearchOverlay = memo(Search);
@@ -169,6 +171,9 @@ export function App() {
       <Boundary>
       <Background mode={bgMode} />
       <TopBar />
+      <div className={`view ${view === "stats" ? "is-active" : ""}`}>
+        <StatsTab active={viewActive && view === "stats"} />
+      </div>
       <div className={`view ${view === "home" ? "is-active" : ""}`}>
         <HomeTab active={viewActive && view === "home"} />
       </div>

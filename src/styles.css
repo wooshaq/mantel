@@ -546,6 +546,7 @@ img { display: block; }
 .stat-achievements { position: relative; }
 .stat-meter { position: absolute; left: 2.8rem; right: 2.8rem; bottom: -0.85rem; height: 0.2rem; border-radius: 1rem; background: rgba(255, 255, 255, 0.14); overflow: hidden; }
 .stat-meter span { display: block; height: 100%; border-radius: inherit; background: var(--ink); }
+.stat-hltb .stat-meter span { background: var(--gold); }
 
 .hero-actions { display: flex; gap: 0.9rem; }
 
@@ -1247,3 +1248,81 @@ img { display: block; }
      one, and Home's shelf spaces its covers for the old size. */
   html { transition-property: none !important; }
 }
+
+/* ---------- Statistics ------------------------------------------------------ */
+.stats { position: absolute; inset: 0; padding: 7.4rem var(--pad-x) 4.6rem; display: flex; flex-direction: column; gap: 1.4rem; }
+.stats-head { display: flex; align-items: flex-end; justify-content: space-between; }
+.stats-year { margin: 0; font-size: 3.6rem; font-weight: 640; letter-spacing: -0.04em; line-height: 1; }
+.stats-sum { display: flex; }
+.stats-sum .stat-value { font-size: 2.2rem; }
+.stats-card { border-radius: 1.6rem; background: rgba(255, 255, 255, 0.05); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1); }
+.stats-calendar { --cell: 1.62rem; --gap: 0.19rem; padding: 1.2rem 1.6rem 1rem; }
+.cal-months, .cal-grid { display: grid; grid-template-columns: repeat(var(--weeks), var(--cell)); column-gap: var(--gap); }
+.cal-months { margin-left: 3.2rem; height: 1.3rem; font-size: 0.98rem; color: var(--ink-3); white-space: nowrap; }
+.cal-months .is-current { color: var(--ink); font-weight: 650; }
+.cal-body { display: flex; margin-top: 0.5rem; }
+.cal-weekdays { width: 3.2rem; display: grid; grid-template-rows: repeat(7, var(--cell)); row-gap: var(--gap); align-items: center; padding: 0.19rem 0; font-size: 0.9rem; color: var(--ink-3); }
+.cal-week { display: grid; grid-template-rows: repeat(7, var(--cell)); row-gap: var(--gap); padding: 0.19rem 0; }
+.cal-week.in-month { box-shadow: 0 0.2rem 0 rgba(255, 255, 255, 0.5); }
+.cal-day { display: grid; place-items: center; width: var(--cell, 1.1rem); height: var(--cell, 1.1rem); border-radius: 0.35rem; font-size: 0.9rem; font-weight: 750; font-variant-numeric: tabular-nums; color: #ffe596; cursor: pointer; }
+.cal-day.l0 { background: rgba(255, 255, 255, 0.06); }
+.cal-day.l1 { background: rgba(255, 210, 63, 0.22); }
+.cal-day.l2 { background: rgba(255, 210, 63, 0.45); }
+.cal-day.l3 { background: rgba(255, 210, 63, 0.7); color: #1a1406; }
+.cal-day.l4 { background: var(--gold); color: #1a1406; }
+.cal-day.is-out { background: rgba(255, 255, 255, 0.025); cursor: default; }
+.cal-day.is-focused { box-shadow: 0 0 0 0.16rem var(--bg), 0 0 0 0.34rem #fff; }
+.cal-foot { display: flex; justify-content: space-between; align-items: center; gap: 2rem; margin-top: 0.9rem; font-size: 1rem; color: var(--ink-3); }
+.cal-legend { display: flex; align-items: center; gap: 0.45rem; }
+.cal-legend .cal-day { --cell: 1.05rem; cursor: default; }
+.cal-legend-count { margin-left: 1.3rem; }
+.cal-focus { color: var(--ink-2); white-space: nowrap; }
+.cal-focus b { color: var(--ink); font-weight: 600; }
+.cal-focus-ach { color: var(--gold); font-weight: 650; }
+.stats-month { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 1.2rem 2rem 1rem; }
+.month-head { display: flex; justify-content: space-between; align-items: center; gap: 2rem; margin-bottom: 1.2rem; }
+.month-title { display: flex; align-items: center; gap: 0.8rem; }
+.month-name { font-size: 1.8rem; font-weight: 650; text-transform: capitalize; }
+.month-sum { margin-left: 0.8rem; font-size: 1.1rem; color: var(--ink-3); }
+.month-legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.4rem 1.4rem; font-size: 1.05rem; color: var(--ink-2); }
+.month-legend span { display: flex; align-items: center; gap: 0.5rem; }
+.month-legend i { width: 0.9rem; height: 0.9rem; border-radius: 0.25rem; }
+.month-plot { position: relative; flex: 1; min-height: 0; margin-left: 2.8rem; }
+.month-line { position: absolute; left: 0; right: 0; height: 1px; background: rgba(255, 255, 255, 0.07); }
+.month-line:first-child { background: rgba(255, 255, 255, 0.18); }
+.month-line span { position: absolute; left: -2.8rem; top: -0.6rem; font-size: 0.9rem; color: var(--ink-3); }
+.month-bars { position: absolute; inset: 0; display: flex; gap: 0.75rem; }
+.month-day { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; gap: 0.15rem; border-radius: 0.5rem; cursor: pointer; }
+.month-day.is-focused { background: rgba(255, 255, 255, 0.08); box-shadow: var(--focus); padding: 0 0.25rem; }
+.month-day.is-future { cursor: default; }
+.month-part { flex: none; border-radius: 0.25rem; }
+.month-ach { flex: none; margin-bottom: 0.25rem; text-align: center; font-size: 0.9rem; font-weight: 700; color: var(--gold); white-space: nowrap; }
+.month-days { display: flex; gap: 0.75rem; margin: 0.5rem 0 0 2.8rem; }
+.month-days span { flex: 1; text-align: center; font-size: 0.9rem; color: var(--ink-3); }
+.month-days .is-focused { color: var(--ink); font-weight: 700; }
+.month-days .is-today { color: var(--gold); font-weight: 700; }
+.month-days .is-future { opacity: 0.4; }
+
+/* ---------- HowLongToBeat and play history ----------------------------------- */
+.hltb { width: 52rem; margin-bottom: 2rem; padding: 1.6rem 1.8rem 1.7rem; border-radius: 1.6rem; background: rgba(255, 255, 255, 0.06); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); }
+.hltb-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1.3rem; }
+.hltb-source { font-size: 0.95rem; color: var(--ink-3); }
+.hltb-rows { --label: 13rem; --value: 4.2rem; position: relative; display: flex; flex-direction: column; gap: 0.9rem; }
+.hltb-row { display: grid; grid-template-columns: var(--label) minmax(0, 1fr) var(--value); align-items: center; gap: 1.1rem; font-size: 1.15rem; color: var(--ink-2); }
+.hltb-row b { text-align: right; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.hltb-bar { height: 0.75rem; border-radius: 0.4rem; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.hltb-bar span { display: block; height: 100%; border-radius: inherit; background: rgba(255, 255, 255, 0.55); }
+.hltb-you { position: absolute; top: -0.5rem; bottom: -0.5rem; width: 0.18rem; border-radius: 0.1rem; background: var(--gold); left: calc(var(--label) + 1.1rem + (100% - var(--label) - var(--value) - 2.2rem) * var(--at)); }
+.hltb-foot { display: flex; justify-content: space-between; margin-top: 1.3rem; font-size: 1.05rem; color: var(--ink-2); }
+.hltb-foot b { color: var(--gold); font-weight: 650; }
+.history-list { gap: 0; }
+.history-gap { padding: 0.3rem 0 1rem 10.4rem; font-size: 1rem; color: var(--ink-3); }
+.history-day { display: grid; grid-template-columns: 7.5rem 2.9rem minmax(0, 1fr); align-items: start; padding: 0.7rem 0.8rem; border-radius: 1rem; cursor: pointer; }
+.history-day.is-focused { background: var(--glass); box-shadow: var(--focus); }
+.history-when { display: flex; flex-direction: column; align-items: flex-end; }
+.history-when b { font-size: 1.2rem; font-weight: 600; }
+.history-when span { font-size: 0.95rem; color: var(--ink-3); }
+.history-dot { justify-self: center; margin-top: 0.35rem; width: 0.95rem; height: 0.95rem; border-radius: 50%; background: var(--bg); box-shadow: inset 0 0 0 0.16rem rgba(255, 255, 255, 0.6); }
+.history-dot.is-latest { background: var(--gold); box-shadow: 0 0 0 0.3rem rgba(255, 210, 63, 0.2); }
+.history-what { display: flex; flex-wrap: wrap; align-items: center; gap: 0.7rem; font-size: 1.2rem; color: var(--ink-2); }
+.history-badge { padding: 0.25rem 0.7rem; border-radius: 1rem; font-size: 0.9rem; font-weight: 650; background: rgba(255, 210, 63, 0.16); color: var(--gold); }

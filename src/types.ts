@@ -63,6 +63,30 @@ export interface Game {
   site?: string | null;
   /** HDR switched on while the game runs. */
   hdr?: boolean;
+  /** How long it takes, from the HowLongToBeat page linked to it. */
+  hltb?: Hltb | null;
+}
+
+/** Times to beat a game from HowLongToBeat, in seconds. */
+export interface Hltb {
+  id: number;
+  name: string;
+  main: number;
+  plus: number;
+  full: number;
+}
+
+/** One stretch of play, in Unix seconds. */
+export interface Session {
+  game: string;
+  start: number;
+  end: number;
+}
+
+/** When a game's Steam achievements were unlocked, in Unix seconds. */
+export interface UnlockTimes {
+  game: string;
+  times: number[];
 }
 
 /** Something to add on the Apps tab: an app from the Start menu, or a site. */
