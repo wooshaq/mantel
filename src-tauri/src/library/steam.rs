@@ -128,6 +128,8 @@ pub fn downloading() -> Vec<u32> {
 fn is_blocked(appid: u32, name: &str) -> bool {
     let n = name.to_lowercase();
     BLOCKED_IDS.contains(&appid)
+        || crate::steam_history::HELPERS.contains(&appid)
+        || n == "ealink"
         || n.contains("redistributable")
         || n.contains("steamworks")
         || n.contains("steam linux runtime")

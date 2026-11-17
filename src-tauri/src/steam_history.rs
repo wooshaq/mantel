@@ -16,6 +16,13 @@ pub const MAX_SECS: i64 = 12 * 3600;
 /// Steam app types that run but aren't games.
 const NOT_GAMES: &[&str] = &["application", "tool", "music", "video", "series", "episode", "hardware", "advertising"];
 
+/// Helpers Steam starts next to a game and tracks like one, with no store page to tell:
+/// EALink (EA app sign-in for EA games bought on Steam).
+pub const HELPERS: &[u32] = &[1182480];
+/// A session of an app with no store page that lies at least this share inside another game's
+/// sessions is a helper running along with it, not play of its own.
+const ALONGSIDE: f64 = 0.8;
+
 /// What Steam's store says an app is.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -65,15 +72,42 @@ pub async fn app_info(ids: Vec<u32>, known: &HashMap<u32, AppInfo>) -> HashMap<u
         .await
 }
 
-/// Takes out of the log what isn't play: sittings too long to be real, and apps that aren't
-/// games. Whether anything went.
+/// Takes out of the log what isn't play: sittings too long to be real, apps that aren't games,
+/// and helpers such as EA's that run alongside a game. Whether anything went.
 pub fn prune(log: &mut Vec<Session>, apps: &HashMap<u32, AppInfo>) -> bool {
     let before = log.len();
+    let id_of = |s: &Session| s.game.strip_prefix("steam:").and_then(|id| id.parse::<u32>().ok());
+    let snapshot = log.clone();
     log.retain(|s| {
-        let app = s.game.strip_prefix("steam:").and_then(|id| id.parse::<u32>().ok()).and_then(|id| apps.get(&id));
-        s.end - s.start <= MAX_SECS && app.is_none_or(AppInfo::is_game)
+        let id = id_of(s);
+        if s.end - s.start > MAX_SECS || id.is_some_and(|id| HELPERS.contains(&id)) {
+            return false;
+        }
+        let Some(app) = id.and_then(|id| apps.get(&id)) else { return true };
+        if !app.is_game() {
+            return false;
+        }
+        // No store page: kept unless it only ran inside another game's time.
+        !(app.kind.is_empty() && alongside(s, &snapshot) >= ALONGSIDE)
     });
     log.len() != before
+}
+
+/// Share of a session's time covered by sessions of other games.
+fn alongside(s: &Session, log: &[Session]) -> f64 {
+    let len = (s.end - s.start).max(1);
+    let mut spans: Vec<(i64, i64)> =
+        log.iter().filter(|o| o.game != s.game && o.start < s.end && s.start < o.end).map(|o| (o.start.max(s.start), o.end.min(s.end))).collect();
+    spans.sort_unstable();
+    let (mut covered, mut reach) = (0, s.start);
+    for (a, b) in spans {
+        let a = a.max(reach);
+        if b > a {
+            covered += b - a;
+            reach = b;
+        }
+    }
+    covered as f64 / len as f64
 }
 
 /// App ids of the Steam games in sessions.
@@ -245,6 +279,22 @@ mod tests {
         assert_eq!(log.iter().map(|s| s.game.as_str()).collect::<Vec<_>>(), ["steam:1", "xbox:x"]);
         assert!(!prune(&mut log, &apps));
         assert_eq!(steam_ids(&log), [1]);
+    }
+
+    #[test]
+    fn helpers_running_with_a_game_arent_play() {
+        let no_page = AppInfo { name: String::new(), kind: String::new(), at: 1 };
+        let game = AppInfo { name: "Game".into(), kind: "game".into(), at: 1 };
+        let mut log = vec![
+            Session { game: "steam:10".into(), start: 1000, end: 5000 },
+            Session { game: "steam:1182480".into(), start: 1010, end: 4990 },
+            Session { game: "steam:20".into(), start: 1020, end: 4900 },
+            Session { game: "steam:30".into(), start: 9000, end: 12000 },
+        ];
+        let apps = HashMap::from([(10, game.clone()), (20, no_page.clone()), (30, no_page), (1182480, game)]);
+        assert!(prune(&mut log, &apps));
+        // EALink by id, the page-less app inside the game's time; a page-less app on its own stays.
+        assert_eq!(log.iter().map(|s| s.game.as_str()).collect::<Vec<_>>(), ["steam:10", "steam:30"]);
     }
 
     #[test]

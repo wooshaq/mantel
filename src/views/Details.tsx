@@ -110,40 +110,51 @@ function useStoreGame(id: string | null): StoreGame {
 const CLOCK = <><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></>;
 const HOURGLASS = <path d="M7 3.5h10M7 20.5h10M8 3.5c0 4.5 8 5 8 8.5s-8 4-8 8.5M16 3.5c0 4.5-8 5-8 8.5s8 4 8 8.5" />;
 
-/** HowLongToBeat's three times, with where the player is on them. */
-function HltbCard({ game }: { game: Game }) {
+/** Where the labels under the HowLongToBeat bar sit, in % of its width: under their marks, the
+ *  last flush right, moved left where they would run into the next one. */
+function labelSpots(marks: number[], gap = 24): number[] {
+  const out = [...marks];
+  for (let i = out.length - 2; i >= 0; i--) {
+    const next = i === out.length - 2 ? 100 - gap / 2 : out[i + 1];
+    out[i] = Math.min(out[i], next - gap);
+  }
+  return out;
+}
+
+/** HowLongToBeat's three times as marks on one bar, with how far the player is along it. */
+function HltbCard({ game, pills }: { game: Game; pills: number }) {
   const h = game.hltb!;
   const rows = [
     [t("Main story"), h.main],
     [t("Main + extras"), h.plus],
     [t("Completionist"), h.full],
   ].filter(([, s]) => (s as number) > 0) as [string, number][];
+  if (!rows.length) return null;
   const max = Math.max(...rows.map(([, s]) => s));
   const played = game.playtimeMinutes * 60;
-  const at = Math.min(1, played / max);
   const left = h.main - played;
+  const marks = rows.map(([, s]) => (100 * s) / max);
+  const spots = labelSpots(marks);
   return (
-    <div className="hltb">
+    <div className="hltb" style={{ "--pills": pills } as React.CSSProperties}>
       <div className="hltb-head">
-        <span className="eyebrow">{t("How long to beat")}</span>
-        <span className="hltb-source">HowLongToBeat</span>
+        <span className="eyebrow">{t("How long to beat")} <span className="hltb-source">· HowLongToBeat</span></span>
+        {h.main > 0 && (
+          <span className="hltb-you-text">
+            <b>{t("You: {h} h", { h: Math.round(played / 3600) })}</b> · {t("{p}% of the story", { p: Math.min(100, Math.round((100 * played) / h.main)) })}
+            {left > 1800 && <> · {t("About {h} h left", { h: Math.round(left / 3600) })}</>}
+          </span>
+        )}
       </div>
-      <div className="hltb-rows" style={{ "--at": at } as React.CSSProperties}>
-        {rows.map(([label, s]) => (
-          <div className="hltb-row" key={label}>
-            <span>{label}</span>
-            <span className="hltb-bar"><span style={{ width: `${(100 * s) / max}%` }} /></span>
-            <b>{t("{h} h", { h: Math.round(s / 3600) })}</b>
-          </div>
+      <div className="hltb-track">
+        {played > 0 && <span className="hltb-fill" style={{ width: `${Math.min(100, (100 * played) / max)}%` }} />}
+        {marks.map((m, n) => <span key={n} className="hltb-mark" style={{ left: `${m}%` }} />)}
+        {rows.map(([label, s], n) => (
+          <span key={label} className={`hltb-label ${n === rows.length - 1 ? "is-last" : spots[n] < 9 ? "is-start" : ""}`} style={n === rows.length - 1 ? undefined : { left: `${Math.max(0, spots[n])}%` }}>
+            {label} <b>{t("{h} h", { h: Math.round(s / 3600) })}</b>
+          </span>
         ))}
-        {played > 0 && <span className="hltb-you" />}
       </div>
-      {h.main > 0 && (
-        <div className="hltb-foot">
-          <span><b>{t("You: {h} h", { h: Math.round(played / 3600) })}</b> · {t("{p}% of the story", { p: Math.min(100, Math.round((100 * played) / h.main)) })}</span>
-          {left > 1800 && <span>{t("About {h} h left", { h: Math.round(left / 3600) })}</span>}
-        </div>
-      )}
     </div>
   );
 }
@@ -512,6 +523,8 @@ export function Details() {
           {game.tags?.includes("leaving") && <span className="details-leaving">{t("Leaving soon")}</span>}
           {game.tags?.includes("new") && <span>{t("New")}</span>}
           {info?.genres?.slice(0, 3).map((g) => <span key={g}>{g}</span>)}
+          {info?.developers?.[0] && <span>{info.developers[0]}</span>}
+          {info?.releaseDate && <span>{info.releaseDate}</span>}
         </motion.div>
         <motion.div className="details-title" {...enter(0.1)}>
           <Img srcs={game.art.logo} className="details-logo" trim fallback={<GameName name={game.name} />} />
@@ -557,7 +570,7 @@ export function Details() {
           ))}
         </motion.div>
 
-        {game.hltb && <motion.div {...enter(0.25)}><HltbCard game={game} /></motion.div>}
+        {game.hltb && <motion.div {...enter(0.25)}><HltbCard game={game} pills={actions.filter((a) => !a.primary).length} /></motion.div>}
 
         {isCatalog(game) && game.tags?.includes("external") ? (
           <p className="details-note is-info">{t("This game installs through its publisher's launcher. The Xbox app can start the install.")}</p>
@@ -568,12 +581,6 @@ export function Details() {
           <motion.p className="details-desc" {...enter(0.28)}>
             {info.description}
           </motion.p>
-        )}
-        {(info?.developers?.length || info?.releaseDate) && (
-          <motion.div className="details-credits" {...enter(0.32)}>
-            {info?.developers?.[0] && <span>{info.developers[0]}</span>}
-            {info?.releaseDate && <span>{info.releaseDate}</span>}
-          </motion.div>
         )}
         {!!info?.features?.length && (
           <motion.div className="details-tags" {...enter(0.34)}>
