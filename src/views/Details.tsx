@@ -663,7 +663,14 @@ export function Details() {
           service="HowLongToBeat"
           title={t("How long to beat {name}", { name: game.name })}
           intro={t("HowLongToBeat has no way for apps to look games up, so link the game once: Mantel then reads its times by itself.")}
-          howTo={[t("Open HowLongToBeat: it searches for this game"), t("Open the right game and copy the page's address"), t("Come back here and paste it")]}
+          howTo={[t("Search HowLongToBeat: it opens over Mantel, already searching for this game"), t("Pick the right game: Mantel takes its page by itself"), t("Or paste the page's address yourself")]}
+          openLabel={t("Search HowLongToBeat")}
+          onOpen={async () => {
+            const hltb = await api.hltbPick(game.id);
+            useStore.setState((s) => ({ games: s.games.map((g) => (g.id === game.id ? { ...g, hltb } : g)) }));
+            toast(t("Linked {name} to HowLongToBeat", { name: game.name }), "good");
+            setLinking(false);
+          }}
           url={`https://howlongtobeat.com/?q=${encodeURIComponent(game.name)}`}
           site="howlongtobeat.com"
           connected={!!game.hltb}

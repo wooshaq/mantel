@@ -65,6 +65,8 @@ export function KeyFlow({
   onClose,
   kind = "key",
   disconnectLabel,
+  onOpen,
+  openLabel,
 }: {
   service: string;
   title: string;
@@ -80,6 +82,9 @@ export function KeyFlow({
   /** A key by default; "profile" asks for a profile link, "link" for a page's address. */
   kind?: "key" | "profile" | "link";
   disconnectLabel?: string;
+  /** Does the first step in Mantel instead of opening the site in the browser. */
+  onOpen?: () => Promise<void>;
+  openLabel?: string;
 }) {
   const words = wordsFor(kind, service, site);
   const steps: Step[] = ["open", "paste", "type", ...(connected && onDisconnect ? (["disconnect"] as Step[]) : [])];
@@ -105,7 +110,12 @@ export function KeyFlow({
 
   const run = async (step: Step) => {
     if (busy) return;
-    if (step === "open") {
+    if (step === "open" && onOpen) {
+      setError(null);
+      setBusy(true);
+      await onOpen().catch((e) => String(e) !== "closed" && setError(errorText(e)));
+      setBusy(false);
+    } else if (step === "open") {
       await api.openUrl(url).catch((e) => setError(errorText(e)));
       toast(words.opened);
     } else if (step === "paste") {
@@ -120,7 +130,7 @@ export function KeyFlow({
   };
 
   const label: Record<Step, string> = {
-    open: t("Open {site}", { site }),
+    open: openLabel ?? t("Open {site}", { site }),
     paste: busy ? words.checking : words.paste,
     type: words.type,
     disconnect: disconnectLabel ?? t("Disconnect {service}", { service }),

@@ -13,6 +13,7 @@ pub use steam::cdn_art as steam_cdn_art;
 #[cfg(windows)]
 pub(crate) use windows_stores::installed_packages;
 pub use steam::current_user as steam_user;
+pub use steam::logs_dir as steam_logs_dir;
 
 #[derive(Default)]
 pub struct Scan {

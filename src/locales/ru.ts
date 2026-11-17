@@ -661,4 +661,9 @@ export const ru: Catalog = {
   "That isn't a HowLongToBeat game link": "Это не ссылка на игру HowLongToBeat",
   "HowLongToBeat has no times for that game": "У HowLongToBeat нет времени для этой игры",
   "day": "день",
+  "Search HowLongToBeat: it opens over Mantel, already searching for this game": "Найдите на HowLongToBeat: он откроется поверх Mantel, уже с этой игрой",
+  "Pick the right game: Mantel takes its page by itself": "Выберите нужную игру: Mantel сам возьмёт её страницу",
+  "Or paste the page's address yourself": "Или вставьте адрес страницы сами",
+  "Search HowLongToBeat": "Искать на HowLongToBeat",
+  "HowLongToBeat is already open": "HowLongToBeat уже открыт",
 };

@@ -91,3 +91,64 @@ mod tests {
         assert!(parse_page("<html></html>", 1).is_none());
     }
 }
+
+/// Runs in the HowLongToBeat window: the site changes pages without loading them, so a move to
+/// a game's page is passed on as a navigation Mantel can see.
+const WATCH_GAME_PAGE: &str = "(function(){\
+var done=false;\
+function check(){if(done)return;var m=location.pathname.match(/^\\/game\\/(\\d+)/);if(m){done=true;location.replace('https://mantel.invalid/hltb#'+m[1]);}}\
+['pushState','replaceState'].forEach(function(k){var o=history[k];history[k]=function(){var r=o.apply(this,arguments);setTimeout(check,0);return r;};});\
+addEventListener('popstate',check);check();})();";
+
+/// Opens HowLongToBeat's own search for a game in a window over Mantel. The player picks the
+/// game there, and the id of the page they open comes back; Mantel reads nothing else.
+pub async fn pick(app: &tauri::AppHandle, query: &str) -> Result<u32, String> {
+    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+    const LABEL: &str = "hltb";
+    if let Some(w) = app.get_webview_window(LABEL) {
+        let _ = w.set_focus();
+        return Err("HowLongToBeat is already open".into());
+    }
+    let url = tauri::Url::parse_with_params("https://howlongtobeat.com/", &[("q", query)]).map_err(|e| e.to_string())?;
+    let (tx, rx) = std::sync::mpsc::channel::<Option<u32>>();
+    let tx_nav = tx.clone();
+    let mut builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(url));
+    // Same WebView2 options as the main window: environments with different flags can't coexist.
+    if let Some(args) = app.config().app.windows.first().and_then(|w| w.additional_browser_args.clone()) {
+        builder = builder.additional_browser_args(&args);
+    }
+    let w = builder
+        .title("HowLongToBeat")
+        .inner_size(1100.0, 800.0)
+        .center()
+        .always_on_top(true)
+        .initialization_script(WATCH_GAME_PAGE)
+        .on_navigation(move |url| {
+            let id = match url.host_str() {
+                Some("mantel.invalid") => url.fragment().and_then(parse_id),
+                Some(h) if h.ends_with("howlongtobeat.com") && url.path().starts_with("/game/") => parse_id(url.path()),
+                _ => return true,
+            };
+            match id {
+                Some(id) => {
+                    let _ = tx_nav.send(Some(id));
+                    false
+                }
+                None => url.host_str() != Some("mantel.invalid"),
+            }
+        })
+        .build()
+        .map_err(|e| e.to_string())?;
+    w.on_window_event(move |e| {
+        if matches!(e, WindowEvent::Destroyed) {
+            let _ = tx.send(None);
+        }
+    });
+    let got = tauri::async_runtime::spawn_blocking(move || rx.recv_timeout(std::time::Duration::from_secs(15 * 60)).ok().flatten())
+        .await
+        .map_err(|e| e.to_string())?;
+    if let Some(w) = app.get_webview_window(LABEL) {
+        let _ = w.close();
+    }
+    got.ok_or_else(|| "closed".into())
+}

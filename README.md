@@ -40,7 +40,9 @@ TV PC.
   have to be public.
 - **Statistics.** The first tab is a calendar of the year: each day's colour is the time
   played, its number the Steam achievements unlocked. Under it, the month day by day, split by
-  game. Mantel writes every session down from wsq.9 on; achievement dates go back further.
+  game. Mantel writes every session down from wsq.9 on, and reads past Steam sessions from the
+  Steam client's own log (`Steam\logs\gameprocess_log.txt`) as far back as Steam keeps it;
+  achievement dates go back further.
 - **Play history and HowLongToBeat.** A game's page lists every day it was played, with the
   breaks between. Link the game to its HowLongToBeat page once and Home and the page show how
   much of the story is left.
@@ -98,7 +100,8 @@ Mantel has no servers, sends no telemetry and signs in to no account. It talks o
   SteamID and the game's app id.
 - **HowLongToBeat**, only for games you link to it: Mantel reads the public page of each linked
   game, about every two weeks. HowLongToBeat has no API and blocks apps from its search, so
-  Mantel never searches it; the link opens its search in your browser.
+  Mantel never searches it. Linking opens HowLongToBeat's own site in a window over Mantel,
+  already searching for the game: you pick the game, and Mantel takes the address of its page.
 - **Store catalogs.** Microsoft's public Game Pass and Store catalogs and Steam's store, for
   the lists to browse and for search, which sends them what you type. No account is involved
   in reading them.

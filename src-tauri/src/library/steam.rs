@@ -233,6 +233,11 @@ fn user_playtime(root: &Path) -> HashMap<u32, (u64, i64)> {
     out
 }
 
+/// Where the Steam client writes its logs, the record of games it ran among them.
+pub fn logs_dir() -> Option<PathBuf> {
+    steam_root().map(|r| r.join("logs")).filter(|p| p.is_dir())
+}
+
 /// The account Steam last signed in with: SteamID64 and persona name.
 pub fn current_user() -> Option<(u64, String)> {
     let root = steam_root()?;

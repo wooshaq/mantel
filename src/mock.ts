@@ -316,6 +316,15 @@ export const mockApi: Api = {
   async getSessions() {
     return sampleSessions();
   },
+  async importSteamHistory() {
+    return 0;
+  },
+  async hltbPick(id) {
+    await wait(1500);
+    const h: Hltb = { id: 1, name: "Sample", main: 19 * 3600, plus: 23 * 3600, full: 27 * 3600 };
+    games = games.map((g) => (g.id === id ? { ...g, hltb: h } : g));
+    return h;
+  },
   async achievementTimes() {
     return sampleUnlocks();
   },

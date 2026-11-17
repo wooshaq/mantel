@@ -626,4 +626,9 @@ export const es: Catalog = {
   "That isn't a HowLongToBeat game link": "Eso no es un enlace de juego de HowLongToBeat",
   "HowLongToBeat has no times for that game": "HowLongToBeat no tiene tiempos para ese juego",
   "day": "día",
+  "Search HowLongToBeat: it opens over Mantel, already searching for this game": "Busca en HowLongToBeat: se abre sobre Mantel, ya buscando este juego",
+  "Pick the right game: Mantel takes its page by itself": "Elige el juego correcto: Mantel toma su página solo",
+  "Or paste the page's address yourself": "O pega tú la dirección de la página",
+  "Search HowLongToBeat": "Buscar en HowLongToBeat",
+  "HowLongToBeat is already open": "HowLongToBeat ya está abierto",
 };

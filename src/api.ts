@@ -44,6 +44,10 @@ export interface Api {
   hideWindow(): Promise<void>;
   /** Every session played, oldest first. */
   getSessions(): Promise<Session[]>;
+  /** Adds sessions from the Steam client's own log; how many were new. */
+  importSteamHistory(): Promise<number>;
+  /** Opens HowLongToBeat's search in a window; links the game the player picks there. */
+  hltbPick(id: string): Promise<Hltb>;
   /** When each Steam achievement was unlocked, by game. */
   achievementTimes(): Promise<UnlockTimes[]>;
   /** Links a game to its HowLongToBeat page by the page's address; "" unlinks it. */
@@ -138,6 +142,8 @@ const tauriApi: Api = {
   setTray: (on, show, quit) => call("set_tray", { on, show, quit }),
   hideWindow: () => call("hide_window"),
   getSessions: () => call("get_sessions"),
+  importSteamHistory: () => call("import_steam_history"),
+  hltbPick: (id) => call("hltb_pick", { id }),
   achievementTimes: () => call("achievement_times"),
   setHltb: (id, input) => call("set_hltb", { id, input }),
   refreshHltb: () => call("refresh_hltb"),

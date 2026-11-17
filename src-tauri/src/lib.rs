@@ -8,6 +8,7 @@ mod hdr;
 mod icons;
 mod install;
 mod steam_install;
+mod steam_history;
 mod steam_public;
 mod steam_store;
 mod xbox_store;
@@ -927,6 +928,22 @@ fn hide_window(app: AppHandle) {
     tray::step_aside(&app);
 }
 
+/// Sessions from the Steam client's own log of games it ran, as far back as it keeps it.
+/// How many were new.
+#[tauri::command]
+async fn import_steam_history(app: AppHandle) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(dir) = library::steam_logs_dir() else { return 0 };
+        let added = app.state::<AppState>().import_sessions(steam_history::read(&dir));
+        if added > 0 {
+            log::info(&format!("steam history: {added} sessions from Steam's log"));
+        }
+        added
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// Every session played, oldest first, for the statistics and each game's history.
 #[tauri::command]
 fn get_sessions(state: State<'_, AppState>) -> Vec<store::Session> {
@@ -974,6 +991,24 @@ async fn set_hltb(state: State<'_, AppState>, id: String, input: String) -> Resu
     cache.hltb.insert(hid, found.clone());
     state.save_cache(&cache);
     Ok(Some(found))
+}
+
+/// Lets the player pick the game on HowLongToBeat's own site, in a window over Mantel, and
+/// links it. "closed" when the window was closed without a pick.
+#[tauri::command]
+async fn hltb_pick(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<hltb::Hltb, String> {
+    let name = snapshot(&state).into_iter().find(|g| g.id == id).map(|g| g.name).ok_or("Game not found")?;
+    let hid = hltb::pick(&app, &name).await?;
+    let found = hltb::fetch(hid).await?;
+    {
+        let mut user = state.user.lock().unwrap();
+        user.meta.entry(id).or_default().hltb = Some(hid);
+        state.save_user(&user);
+    }
+    let mut cache = state.cache.lock().unwrap();
+    cache.hltb.insert(hid, found.clone());
+    state.save_cache(&cache);
+    Ok(found)
 }
 
 /// Reads again the HowLongToBeat times that are a couple of weeks old. Whether any changed.
@@ -1139,6 +1174,8 @@ pub fn run() {
             set_steam_id,
             set_tray,
             get_sessions,
+            import_steam_history,
+            hltb_pick,
             achievement_times,
             set_hltb,
             refresh_hltb,

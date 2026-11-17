@@ -213,6 +213,16 @@ impl AppState {
         write_json(&self.dir.join(CACHE_FILE), cache);
     }
 
+    /// Adds sessions found elsewhere, leaving out what the log has already. How many were new.
+    pub fn import_sessions(&self, found: Vec<Session>) -> usize {
+        let mut sessions = self.sessions.lock().unwrap();
+        let added = crate::steam_history::merge(&mut sessions, found);
+        if added > 0 {
+            write_json(&self.dir.join(SESSIONS_FILE), &*sessions);
+        }
+        added
+    }
+
     /// Adds a finished session to the play log.
     pub fn log_session(&self, session: Session) {
         let mut sessions = self.sessions.lock().unwrap();
