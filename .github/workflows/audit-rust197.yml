@@ -1,0 +1,64 @@
+name: Audit rebuild with original Rust 1.97.0
+on:
+  push:
+    branches: [audit/rebuild-rust197]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rebuild:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact original source
+        uses: actions/checkout@v4
+        with:
+          ref: 0286484c3c1cbbd7dc96ad910915480ec788f872
+          persist-credentials: false
+      - name: Verify source commit
+        shell: pwsh
+        run: |
+          $sha = git rev-parse HEAD
+          if ($sha -ne '0286484c3c1cbbd7dc96ad910915480ec788f872') { throw "Unexpected source commit: $sha" }
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install original Rust 1.97.0
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.97.0'
+          targets: x86_64-pc-windows-msvc
+      - name: Verify compiler identity
+        shell: pwsh
+        run: |
+          rustc --version --verbose
+          cargo --version
+          $info = rustc --version --verbose | Out-String
+          if ($info -notmatch '2d8144b7880597b6e6d3dfd63a9a9efae3f533d3') { throw 'Compiler does not match original Rust 1.97.0' }
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Compile Windows portable executable
+        run: npx tauri build --target x86_64-pc-windows-msvc --no-bundle
+      - name: Collect executable and hashes
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem -Path src-tauri/target/x86_64-pc-windows-msvc/release -Filter '*.exe' -File)
+          if ($files.Count -ne 1) { throw "Expected exactly one exe, found $($files.Count)" }
+          New-Item -ItemType Directory -Force audit-output | Out-Null
+          Copy-Item $files[0].FullName audit-output/rebuilt-rust197.exe
+          Get-FileHash audit-output/rebuilt-rust197.exe -Algorithm SHA256 | Format-List | Out-String | Set-Content audit-output/SHA256.txt
+          Get-Item audit-output/rebuilt-rust197.exe | Select-Object Name,Length | Format-List | Out-String | Add-Content audit-output/SHA256.txt
+          rustc --version --verbose | Out-File audit-output/rustc-version.txt
+          cargo --version | Out-File audit-output/cargo-version.txt
+          git rev-parse HEAD | Out-File audit-output/source-commit.txt
+      - name: Upload executable for binary comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsq1-rust-1-97-0-rebuild
+          path: audit-output/
+          retention-days: 7
+          if-no-files-found: error
