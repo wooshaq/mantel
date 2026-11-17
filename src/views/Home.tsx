@@ -37,8 +37,8 @@ type Button = "play" | "quit" | "details" | "fav" | "ach" | "hdr" | "progress" |
  *  achievements and HDR are a press away too. */
 const buttonsFor = (game: Game | undefined, running: boolean): Button[] => {
   if (game && !game.installed) return ["progress", "cancel"];
-  const extra: Button[] = [...(game?.achievements ? (["ach"] as const) : []), "hdr"];
-  return running ? ["play", "quit", "details", "fav", ...extra] : ["play", "details", "fav", ...extra];
+  const ach: Button[] = game?.achievements ? ["ach"] : [];
+  return running ? ["play", ...ach, "quit", "details", "fav", "hdr"] : ["play", ...ach, "details", "fav", "hdr"];
 };
 
 const heroVariants: Variants = {
