@@ -8,7 +8,6 @@ import { LaunchOverlay } from "./components/LaunchOverlay";
 import { QuickMenu } from "./components/QuickMenu";
 import { Search } from "./components/Search";
 import { Toasts } from "./components/Toasts";
-import { UpdateOffer, UpdateScreen } from "./components/Update";
 import { tabOrder, timeText, TopBar, useClock } from "./components/TopBar";
 import { isTauri } from "./api";
 import { usePageHidden } from "./hooks";
@@ -186,8 +185,6 @@ export function App() {
       <LaunchOverlay />
       <CancelPrompt />
       <Setup />
-      <UpdateOffer />
-      <UpdateScreen />
       {ambient && <AmbientCaption />}
       <Toasts />
       <HintBar />

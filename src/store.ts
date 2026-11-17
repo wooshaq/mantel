@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, isTauri } from "./api";
+import { api } from "./api";
 import { errorText, locale, steamLanguage, t } from "./i18n";
 import { rumble } from "./input";
 import { setSoundEnabled, sound } from "./sound";
@@ -385,16 +385,6 @@ export async function boot() {
   const [settings, cached, running] = await Promise.all([api.getSettings(), api.getLibrary(false), api.runningGames()]);
   setSoundEnabled(settings.sounds);
   set({ settings, games: cached, loaded: true, running });
-  // Xbox mode opened Mantel again while an update installs, and the installer is about to close
-  // this copy, or to finish. Wait on the update screen instead of starting up a version that's
-  // on its way out: no scan, no setup, no update check.
-  const installing = await api.updateInProgress().catch(() => null);
-  if (installing) {
-    api.log("info", `update ${installing} is installing: waiting for it`);
-    set({ updating: { version: installing, downloaded: 0, total: null, restartIn: 0 } });
-    while (await api.updateInProgress().catch(() => null)) await new Promise((r) => setTimeout(r, 1000));
-    set({ updating: null });
-  }
   api.installs().then((list) => set({ installs: Object.fromEntries(list.map((p) => [p.id, p])) }), () => {});
   api.appVersion().then((version) => set({ version }));
   // The library scan carries on behind it, so setup can show what it found.
@@ -403,15 +393,7 @@ export async function boot() {
   const devStep = import.meta.env.DEV ? new URLSearchParams(location.search).get("setup") : null;
   if (devStep !== null) set({ setupStep: Math.max(0, Math.min(3, Number(devStep) || 0)) });
   await rescan(true);
-  // A dev build would "update" itself into the installed release, unless it was built to take a
-  // test feed (tools/ally.sh build-dev update-test). Sample data offers one with ?mockUpdate.
-  if (updatesHere()) {
-    setTimeout(checkForUpdate, 4_000);
-    setInterval(checkForUpdate, 6 * 3600_000);
-  }
 }
-
-const updatesHere = () => import.meta.env.PROD || !!import.meta.env.VITE_UPDATE_TEST || !isTauri;
 
 const SETUP_KEY = "mantel.setupDone";
 
@@ -435,91 +417,6 @@ export function closeSetup() {
     localStorage.setItem(SETUP_KEY, "1");
   } catch {
     // It shows again next time, which beats not showing at all.
-  }
-}
-
-const SNOOZE_KEY = "mantel.updateLater";
-const SNOOZE = 24 * 3600_000;
-
-/** Offers a new version, unless "Later" was chosen less than a day ago. The banner then waits
- *  until setup and any game are out of the way; Settings shows the update either way. */
-async function checkForUpdate() {
-  const version = await api.checkUpdate().catch((e) => {
-    api.log("warn", `update check: ${e}`);
-    return null;
-  });
-  if (!version) return;
-  set({ update: version });
-  if (!snoozed()) set({ updateOffer: version });
-}
-
-function snoozed(): boolean {
-  try {
-    return Date.now() - Number(localStorage.getItem(SNOOZE_KEY) ?? 0) < SNOOZE;
-  } catch {
-    return false;
-  }
-}
-
-/** "Later": no offer for a day, whatever version comes out meanwhile. */
-export function dismissUpdateOffer() {
-  set({ updateOffer: null });
-  try {
-    localStorage.setItem(SNOOZE_KEY, String(Date.now()));
-  } catch {
-    // Then it asks again next start, which is still only once a run.
-  }
-}
-
-/** The Settings button: unlike the background check, it always says how it went. */
-export async function checkForUpdateNow() {
-  if (get().checkingUpdate) return;
-  set({ checkingUpdate: true });
-  try {
-    const version = await api.checkUpdate();
-    if (!version) toast(t("You're on the latest version"), "good");
-    // A dev build would "update" itself into the installed release, so it only says so.
-    else if (!updatesHere()) toast(`Dev build: release ${version} is out`);
-    else {
-      // Settings' own row turns into the update, right where the player is looking.
-      set({ update: version });
-      toast(t("Mantel {version} is out", { version }), "good");
-    }
-  } catch (e) {
-    api.log("warn", `update check: ${e}`);
-    toast(t("Couldn't check for updates: {error}", { error: errorText(e) }), "warn");
-  } finally {
-    set({ checkingUpdate: false });
-  }
-}
-
-export async function installUpdate() {
-  if (gamesRunning(get()).length) return toast(t("Close the game first, then update"), "warn");
-  const version = get().update ?? "";
-  set({ updateOffer: null, updating: { version, downloaded: 0, total: null, restartIn: null } });
-  const patch = (p: Partial<Updating>) => set((s) => ({ updating: s.updating && { ...s.updating, ...p } }));
-  try {
-    await api.installUpdate(
-      (downloaded, total) => patch({ downloaded, total }),
-      // A few seconds' warning: the window is about to close, and it isn't a crash.
-      async () => {
-        for (let n = 3; n > 0; n--) {
-          patch({ restartIn: n });
-          await new Promise((r) => setTimeout(r, 1000));
-        }
-        patch({ restartIn: 0 });
-        // The copy Xbox mode opens while the installer works sees this and waits.
-        await api.beginUpdate(version).catch(() => {});
-      },
-    );
-    // On Windows the installer has closed Mantel by now; sample data has nothing to restart into.
-    if (!isTauri) setTimeout(() => set({ updating: null }), 1500);
-  } catch (e) {
-    api.log("warn", `update: ${e}`);
-    // Copies Xbox mode opens from now on start up as usual.
-    api.endUpdate().catch(() => {});
-    set({ updating: null });
-    toast(t("Update failed: {error}", { error: errorText(e) }), "warn");
   }
 }
 

@@ -9,7 +9,7 @@ import { useHints } from "./Hints";
 
 /**
  * Making Mantel the home app of Xbox mode. Windows takes an app from outside the Store only in
- * Developer Mode, so Mantel turns that on first, which Windows asks the player to allow (fse.rs).
+ * Developer Mode, which the player turns on in Windows Settings: Mantel never does it itself (fse.rs).
  */
 export function useHomeApp() {
   const [mode, setMode] = useState<FullScreenMode | null>(null);
@@ -50,13 +50,13 @@ export function homeAppCopy(mode: FullScreenMode) {
       : [
           ...(mode.developerMode
             ? []
-            : [t("Windows asks for permission once: choose Yes"), t("Mantel turns on Developer Mode, which Windows needs before an app from outside the Store can be the home app")]),
+            : [t("Windows needs Developer Mode before an app from outside the Store can be the home app. Mantel won't turn it on: do it yourself in Developer settings if you accept that")]),
           t("The next time Xbox mode starts, it starts in Mantel"),
         ],
     note: t("Uninstalling Mantel gives Xbox mode back the home app it had before."),
     status: mode.home ? t("Mantel is the home app") : mode.developerMode ? t("Developer Mode is on") : t("Developer Mode is off"),
     action: t("Make Mantel the home app"),
-    busy: mode.developerMode ? t("Setting up…") : t("Waiting for Windows…"),
+    busy: t("Setting up…"),
   };
 }
 
@@ -67,7 +67,7 @@ export function HomeAppFlow({ onClose }: { onClose: () => void }) {
   const { mode, busy, error, make, openDeveloperSettings } = useHomeApp();
   const [index, setIndex] = useState(0);
   const copy = mode ? homeAppCopy(mode) : null;
-  const actions: Action[] = !mode ? [] : mode.home ? ["done"] : error && !mode.developerMode ? ["make", "developer"] : ["make"];
+  const actions: Action[] = !mode ? [] : mode.home ? ["done"] : !mode.developerMode ? ["developer", "make"] : ["make"];
   const i = Math.min(index, actions.length - 1);
 
   const run = (a: Action) => {

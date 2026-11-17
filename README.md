@@ -55,8 +55,7 @@ Download `Mantel_x.y.z_x64-setup.exe` from
 [Releases](https://github.com/jarto666/mantel/releases) and run it. On first start, a short
 setup asks for your language, signs you in to Steam and Xbox if you like, and makes Mantel
 start with the handheld: as the home app of Xbox mode, or with Windows. Settings → System →
-*Run setup again* brings it back. When a new version is out, Mantel offers it as it starts:
-one button installs it, with the download on screen, and Mantel restarts by itself.
+*Run setup again* brings it back. This build (wooshaq) has no auto-updater: it never downloads or installs anything by itself.
 
 The installer isn't code-signed yet, so Windows may show "Windows protected your PC":
 choose *More info → Run anyway*. Signing will come through SignPath Foundation; see the
@@ -144,17 +143,11 @@ PATH="/opt/homebrew/opt/llvm/bin:/opt/homebrew/opt/lld/bin:$PATH" npm run build:
 This builds the portable `src-tauri/target/x86_64-pc-windows-msvc/release/mantel.exe`;
 installers come from CI.
 
-`tools/ally.sh` is the loop used to build Mantel against a real handheld over SSH: a dev
-build that loads the UI from the Mac with live reload, deploys to the device, restarts the
-app on its screen and opens WebView DevTools. `tools/ally-ssh-setup.ps1` sets up SSH on the
-handheld; see the comments in both files.
-
 ### Releasing
 
 1. Bump `version` in `package.json` (the app reads its version from there).
 2. Push a tag: `git tag v0.2.0 && git push origin v0.2.0`.
-3. CI builds the installer and the update manifest into a draft release. Publishing the
-   draft is what makes installed copies offer the update.
+3. CI builds the installer into a draft release.
 
 Updates are signed: the release job needs the `TAURI_SIGNING_PRIVATE_KEY` and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` repository secrets, matching `plugins.updater.pubkey`

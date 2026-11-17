@@ -595,25 +595,6 @@ export const mockApi: Api = {
   async appVersion() {
     return "0.1.0";
   },
-  async checkUpdate() {
-    // ?mockUpdate shows the update offer and the update screen in the browser.
-    return new URLSearchParams(location.search).has("mockUpdate") ? "0.4.0" : null;
-  },
-  async beginUpdate() {},
-  async endUpdate() {},
-  async updateInProgress() {
-    // ?installing shows what a copy opened during an install looks like, for a few seconds.
-    return new URLSearchParams(location.search).has("installing") && performance.now() < 6000 ? "0.5.1" : null;
-  },
-  async installUpdate(onProgress, beforeInstall) {
-    const total = 96 * 1024 ** 2;
-    for (let step = 0; step <= 40; step++) {
-      onProgress(Math.round((total * step) / 40), total);
-      await wait(75);
-    }
-    await beforeInstall();
-    await wait(600);
-  },
   log(level, message) {
     console[level === "error" ? "error" : level === "warn" ? "warn" : "info"]("[mantel]", message);
   },

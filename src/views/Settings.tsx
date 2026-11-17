@@ -9,7 +9,7 @@ import { HomeAppFlow } from "../components/HomeApp";
 import { useScrollFocus } from "../hooks";
 import { Layer, useInput } from "../input";
 import { errorText, LANGUAGES, t } from "../i18n";
-import { checkForUpdateNow, installUpdate, loadCatalog, openSetup, rescan, saveSettings, setHidden, toast, useStore } from "../store";
+import { loadCatalog, openSetup, rescan, saveSettings, setHidden, toast, useStore } from "../store";
 import { sound } from "../sound";
 import type { AccountsStatus, Settings as S, Source } from "../types";
 
@@ -69,8 +69,6 @@ export function Settings({ active }: { active: boolean }) {
   const games = useStore((s) => s.games);
   const scanning = useStore((s) => s.scanning);
   const version = useStore((s) => s.version);
-  const update = useStore((s) => s.update);
-  const checkingUpdate = useStore((s) => s.checkingUpdate);
   const [category, setCategory] = useState<Category>(place.category);
   const [zone, setZone] = useState<"categories" | "rows">(place.zone);
   const [index, setIndex] = useState(place.index);
@@ -231,27 +229,6 @@ export function Settings({ active }: { active: boolean }) {
   ];
 
   const system: Row[] = [
-    ...(update
-      ? ([
-          {
-            kind: "button",
-            id: "update",
-            label: t("Update to Mantel {version}", { version: update }),
-            sub: t("Installs in under a minute and restarts Mantel"),
-            value: t("Install"),
-            run: () => void installUpdate(),
-          },
-        ] as Row[])
-      : ([
-          {
-            kind: "button",
-            id: "check-update",
-            label: t("Check for updates"),
-            sub: `Mantel ${version}`,
-            value: checkingUpdate ? t("Checking…") : t("Check"),
-            run: () => void checkForUpdateNow(),
-          },
-        ] as Row[])),
     {
       kind: "toggle",
       id: "autostart",
@@ -352,7 +329,6 @@ export function Settings({ active }: { active: boolean }) {
                   {icon}
                 </svg>
                 {t(label)}
-                {id === "system" && update && <span className="settings-badge" />}
               </button>
             ))}
           </nav>

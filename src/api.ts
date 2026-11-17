@@ -96,18 +96,6 @@ export interface Api {
   xboxStorePage(list: string, genre: string | null, page: number, language: string): Promise<StorePage>;
   readClipboard(): Promise<string>;
   appVersion(): Promise<string>;
-  /** The version of a newer release, or null when up to date. */
-  checkUpdate(): Promise<string | null>;
-  /** Downloads the release found by checkUpdate, reporting bytes as they come, waits for
-   *  `beforeInstall`, then installs it and restarts into it: on Windows the installer closes
-   *  Mantel itself. */
-  installUpdate(onProgress: (downloaded: number, total: number | null) => void, beforeInstall: () => Promise<void>): Promise<void>;
-  /** Marks an update as under way, right before the installer starts and closes Mantel. */
-  beginUpdate(version: string): Promise<void>;
-  /** The update failed before the installer ran. */
-  endUpdate(): Promise<void>;
-  /** The version being installed, when Xbox mode opened Mantel again while an update installs. */
-  updateInProgress(): Promise<string | null>;
 }
 
 export type GameEvent = "game-started" | "game-stopped" | "game-launch-timeout" | "install-progress" | "game-uninstalled" | "front-app";
@@ -124,15 +112,6 @@ export interface FullScreenMode {
   developerMode: boolean;
 }
 
-let pendingUpdate: import("@tauri-apps/plugin-updater").Update | null = null;
-
-// GitHub can take the connection and then never answer, and the updater has no deadline of its
-// own: the check would spin forever, and the update screen, where nothing can be pressed, stay up.
-const CHECK_TIMEOUT = 20_000;
-/** The whole download. It has to be set: without it the download inherits the check's. */
-const DOWNLOAD_TIMEOUT = 15 * 60_000;
-/** No bytes for this long, and the update screen gives up long before DOWNLOAD_TIMEOUT. */
-const DOWNLOAD_STALL = 30_000;
 
 const tauriApi: Api = {
   getLibrary: (rescan) => call("get_library", { rescan }),
@@ -221,55 +200,6 @@ const tauriApi: Api = {
   async appVersion() {
     const { getVersion } = await import("@tauri-apps/api/app");
     return getVersion();
-  },
-  async checkUpdate() {
-    const { check } = await import("@tauri-apps/plugin-updater");
-    const started = Date.now();
-    try {
-      pendingUpdate = await check({ timeout: CHECK_TIMEOUT });
-    } catch (e) {
-      // The updater's text for a timeout names the URL and not the reason.
-      if (Date.now() - started >= CHECK_TIMEOUT - 1000) throw "GitHub isn't answering";
-      throw e;
-    }
-    return pendingUpdate?.version ?? null;
-  },
-  beginUpdate: (version) => call("begin_update", { version }),
-  endUpdate: () => call("end_update"),
-  updateInProgress: () => call("update_in_progress"),
-  async installUpdate(onProgress, beforeInstall) {
-    const update = pendingUpdate;
-    if (!update) return;
-    let downloaded = 0;
-    let total: number | null = null;
-    await new Promise<void>((resolve, reject) => {
-      // Rust goes on until DOWNLOAD_TIMEOUT; what it brings after this is simply not used.
-      let stall = 0;
-      const wait = () => {
-        clearTimeout(stall);
-        stall = window.setTimeout(() => reject("the download stopped"), DOWNLOAD_STALL);
-      };
-      wait();
-      update
-        .download(
-          (e) => {
-            wait();
-            if (e.event === "Started") total = e.data.contentLength ?? null;
-            else if (e.event === "Progress") downloaded += e.data.chunkLength;
-            // All of it is in, whatever the server said the size would be: the installer is next.
-            else total = downloaded;
-            onProgress(downloaded, total);
-          },
-          { timeout: DOWNLOAD_TIMEOUT },
-        )
-        .then(resolve, reject)
-        .finally(() => clearTimeout(stall));
-    });
-    await beforeInstall();
-    // On Windows the installer closes the app itself and starts the new version.
-    await update.install();
-    const { relaunch } = await import("@tauri-apps/plugin-process");
-    await relaunch();
   },
 };
 

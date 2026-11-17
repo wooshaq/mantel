@@ -15,9 +15,6 @@ const OURS: &str = r"Software\Mantel";
 #[cfg(windows)]
 const UNLOCK: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock";
 
-/// Mantel started elevated with this argument only turns on Developer Mode (see main.rs).
-pub const DEVELOPER_MODE_ARG: &str = "--developer-mode";
-
 /// The app user model id Windows starts as the home app: the package's family and app id.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn aumid() -> String {
@@ -178,20 +175,17 @@ pub fn packaged() -> bool {
     false
 }
 
-/// Makes Mantel the home app, asking only for what's missing: Developer Mode (one Windows prompt
-/// for permission, shown over `window`), the package registration, then the choice itself.
+/// Makes Mantel the home app: the package registration, then the choice itself. Developer Mode
+/// must already be on: Mantel never turns it on (no elevation, no HKLM writes).
 /// `dir` holds the installed copy of home-app.ps1 and `version` is Mantel's.
 #[cfg(windows)]
-pub fn make_home(window: isize, dir: &std::path::Path, version: &str) -> Result<Mode, String> {
+pub fn make_home(_window: isize, dir: &std::path::Path, version: &str) -> Result<Mode, String> {
     use windows_sys::Win32::System::Registry::HKEY_CURRENT_USER;
     if !supported() {
         return Err("This PC has no Xbox mode".into());
     }
     if !developer_mode() {
-        elevate(window)?;
-        if !developer_mode() {
-            return Err("Developer Mode is still off. Turn it on in Windows Settings, then try again".into());
-        }
+        return Err("Developer Mode is off. Mantel doesn't turn it on: do it yourself in Windows Settings if you want, then try again".into());
     }
     if !offered() {
         register(dir, version)?;
@@ -210,76 +204,6 @@ pub fn make_home(window: isize, dir: &std::path::Path, version: &str) -> Result<
 #[cfg(not(windows))]
 pub fn make_home(_window: isize, _dir: &std::path::Path, _version: &str) -> Result<Mode, String> {
     Err("This PC has no Xbox mode".into())
-}
-
-/// Starts this exe again with administrator rights, which Windows asks the player for, to turn on
-/// Developer Mode; waits for it to finish.
-#[cfg(windows)]
-fn elevate(window: isize) -> Result<(), String> {
-    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_CANCELLED};
-    use windows_sys::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE};
-    use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject};
-    use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
-    use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
-
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let (verb, file, args) = (wide("runas"), wide(&exe.to_string_lossy()), wide(&format!("{DEVELOPER_MODE_ARG} {window}")));
-    // ShellExecute wants COM, on a thread of its own as in launcher::open_uri.
-    let outcome = std::thread::spawn(move || unsafe {
-        CoInitializeEx(std::ptr::null(), (COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) as u32);
-        let mut info: SHELLEXECUTEINFOW = std::mem::zeroed();
-        info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
-        info.fMask = SEE_MASK_NOCLOSEPROCESS;
-        info.hwnd = window as _;
-        info.lpVerb = verb.as_ptr();
-        info.lpFile = file.as_ptr();
-        info.lpParameters = args.as_ptr();
-        info.nShow = SW_HIDE;
-        let outcome = if ShellExecuteExW(&mut info) == 0 {
-            Err(GetLastError())
-        } else {
-            WaitForSingleObject(info.hProcess, 60_000);
-            let mut code = 1;
-            GetExitCodeProcess(info.hProcess, &mut code);
-            CloseHandle(info.hProcess);
-            Ok(code)
-        };
-        CoUninitialize();
-        outcome
-    })
-    .join()
-    .map_err(|_| "ShellExecute panicked".to_string())?;
-    match outcome {
-        Ok(0) => Ok(()),
-        Ok(code) => {
-            crate::log::warn(&format!("turning on Developer Mode failed with code {code}"));
-            Err("Windows didn't turn on Developer Mode. Turn it on in Windows Settings, then try again".into())
-        }
-        Err(ERROR_CANCELLED) => Err("Windows didn't get permission, so nothing changed".into()),
-        Err(e) => Err(format!("Windows couldn't ask for permission (error {e})")),
-    }
-}
-
-/// The elevated run: sets the value Windows' own Developer Mode switch sets. 0 on success.
-/// Windows gave this process the foreground with the prompt; left alone, it goes to whatever
-/// window is next when this one exits (Steam, once), so it goes back to Mantel's `window`.
-#[cfg(windows)]
-pub fn turn_on_developer_mode(window: isize) -> i32 {
-    use windows_sys::Win32::System::Registry::HKEY_LOCAL_MACHINE;
-    use windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
-    let code = match reg::set_number(HKEY_LOCAL_MACHINE, UNLOCK, "AllowDevelopmentWithoutDevLicense", 1) {
-        Ok(()) => 0,
-        Err(_) => 1,
-    };
-    if window != 0 {
-        unsafe { SetForegroundWindow(window as _) };
-    }
-    code
-}
-
-#[cfg(not(windows))]
-pub fn turn_on_developer_mode(_window: isize) -> i32 {
-    1
 }
 
 /// Registers the install folder as Mantel's package, as the installer does (home-app.ps1).
@@ -307,7 +231,7 @@ fn register(dir: &std::path::Path, version: &str) -> Result<(), String> {
 mod reg {
     use super::wide;
     use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegCreateKeyExW, RegGetValueW, RegSetValueExW, HKEY, KEY_SET_VALUE, KEY_WOW64_64KEY, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SZ,
+        RegCloseKey, RegCreateKeyExW, RegGetValueW, RegSetValueExW, HKEY, KEY_SET_VALUE, KEY_WOW64_64KEY, REG_OPTION_NON_VOLATILE, REG_SZ,
         RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RRF_SUBKEY_WOW6464KEY,
     };
 
@@ -353,10 +277,6 @@ mod reg {
     pub fn set_text(root: HKEY, key: &str, value: &str, text: &str) -> Result<(), String> {
         let data: Vec<u8> = wide(text).into_iter().flat_map(u16::to_le_bytes).collect();
         set(root, key, value, REG_SZ, &data)
-    }
-
-    pub fn set_number(root: HKEY, key: &str, value: &str, n: u32) -> Result<(), String> {
-        set(root, key, value, REG_DWORD, &n.to_le_bytes())
     }
 }
 

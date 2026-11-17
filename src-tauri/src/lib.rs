@@ -17,10 +17,8 @@ mod pick;
 mod store;
 mod system;
 mod uninstall;
-mod update;
 mod vdf;
 
-pub use fse::{turn_on_developer_mode, DEVELOPER_MODE_ARG};
 use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 
@@ -737,27 +735,6 @@ async fn app_suggestions(state: State<'_, AppState>) -> Result<Vec<pick::Suggest
     tauri::async_runtime::spawn_blocking(move || pick::suggestions(&known)).await.map_err(|e| e.to_string())
 }
 
-/// Marks an update as under way, right before the installer starts and closes Mantel.
-#[tauri::command]
-fn begin_update(state: State<'_, AppState>, version: String) {
-    update::begin(state.dir(), &version);
-    log::info(&format!("installing update {version}"));
-}
-
-/// The update failed before the installer ran: copies opened from now on start up as usual.
-#[tauri::command]
-fn end_update(state: State<'_, AppState>) {
-    update::end(state.dir());
-}
-
-/// The version being installed while an update is under way: Xbox mode opens its home app again
-/// as soon as the updater or the installer closes it, and that copy waits instead of starting up.
-#[tauri::command]
-async fn update_in_progress(app: AppHandle) -> Option<String> {
-    let own = app.package_info().version.to_string();
-    tauri::async_runtime::spawn_blocking(move || update::in_progress(app.state::<AppState>().dir(), &own)).await.ok().flatten()
-}
-
 /// Apps "Add an app" can offer: the Start menu's, games and apps on the tab left out, then
 /// sites. Kept, so adding takes an app from this list and nothing else.
 #[tauri::command]
@@ -1078,7 +1055,8 @@ fn power_action(app: AppHandle, action: String) -> Result<(), String> {
     system::action(&app, &action)
 }
 
-/// Setup's and Settings' "Make Mantel the home app": Windows may ask the player for permission.
+/// Setup's and Settings' "Make Mantel the home app". Needs Developer Mode turned on by the player
+/// in Windows Settings: Mantel never turns it on itself.
 #[tauri::command]
 async fn make_home_app(app: AppHandle) -> Result<fse::Mode, String> {
     let dir = app.path().resource_dir().map_err(|e| e.to_string())?;
@@ -1104,8 +1082,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
         .setup(move |app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -1159,9 +1135,6 @@ pub fn run() {
             running_games,
             app_in_front,
             app_choices,
-            begin_update,
-            end_update,
-            update_in_progress,
             add_app,
             add_app_file,
             remove_app,

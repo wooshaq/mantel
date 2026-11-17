@@ -5,7 +5,6 @@ For anyone changing this repo, people and coding agents alike. Mantel is a free,
 - `src/`: the UI. `store.ts` holds state, `views/` the screens, `locales/` the translations, `mock.ts` the sample data for `npm run dev`.
 - `src-tauri/src/`: the backend. `library/` scans stores, `accounts.rs` handles sign-in, `install.rs` and `steam_install.rs` install, `xbox_store.rs` and `steam_store.rs` browse.
 - `site/`: playmantel.com, on Vercel, deployed from `main`.
-- `tools/ally.sh`: the dev loop against the device.
 
 ## What every change includes
 
@@ -34,17 +33,6 @@ Report what was verified and how: in the browser on sample data, on the device, 
 ## Dev loop
 
 `npm run dev` runs the UI in a browser on sample data, which is enough for most UI work.
-
-On the device, over the SSH alias `ally`:
-
-| Command | What it does |
-|---|---|
-| `tools/ally.sh build-dev` | Windows build that loads the UI from the Mac, with DevTools on the Ally's port 9222 |
-| `tools/ally.sh build` | Release build with the UI baked in |
-| `tools/ally.sh deploy [dev]` | Copies the build to `C:\Mantel` and restarts it on the Ally's screen |
-| `tools/ally.sh tunnel` | Forwards port 9222 to the Mac |
-| `tools/ally.sh logs` | Follows `mantel.log` |
-| `tools/ally.sh build-dev update-test [quiet]` | Dev build that calls itself 0.0.1, so it's offered the latest release and installs it as players do; `quiet` runs the installer without its window. Run the UI with `VITE_UPDATE_TEST=1`. Installing replaces the Ally's Mantel with that release |
 
 Known traps:
 
