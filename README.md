@@ -32,7 +32,7 @@ TV PC.
 - **Install from the couch.** Steam games install through Steam's dialog, with progress on the
   home screen. In this build (wooshaq) Game Pass and Store games open on their page in the Xbox
   app, which installs them, and uninstall in Windows Settings: Mantel never runs PowerShell.
-- **In your language.** English, French, German, Spanish and Russian.
+- **In your language.** English, French, German, Polish, Spanish and Russian.
 - **Achievements.** With an account connected, every Steam and Xbox game shows its
   progress, and its page lists each achievement with rarity and gamerscore.
 - **Trailers.** Rest on a game for a moment and its trailer plays, muted, behind it.

@@ -549,4 +549,6 @@ export const ru: Catalog = {
   "Windows didn't turn on Developer Mode. Turn it on in Windows Settings, then try again": "Windows не включила режим разработчика. Включите его в параметрах Windows и попробуйте снова",
   "Windows didn't get permission, so nothing changed": "Разрешение не получено, ничего не изменилось",
   "Mantel's install folder is missing a file. Reinstall Mantel, then try again": "В папке Mantel не хватает файла. Переустановите Mantel и попробуйте снова",
+  "Only Steam and Store games install from Mantel": "Из Mantel устанавливаются только игры Steam и Store",
+  "Cancel it in the Xbox app or the Microsoft Store": "Отмените в приложении Xbox или в Microsoft Store",
 };

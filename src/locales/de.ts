@@ -514,4 +514,6 @@ export const de: Catalog = {
   "Windows didn't turn on Developer Mode. Turn it on in Windows Settings, then try again": "Windows hat den Entwicklermodus nicht aktiviert. In den Windows-Einstellungen aktivieren und erneut versuchen",
   "Windows didn't get permission, so nothing changed": "Keine Erlaubnis von Windows, nichts wurde geändert",
   "Mantel's install folder is missing a file. Reinstall Mantel, then try again": "Im Ordner von Mantel fehlt eine Datei. Mantel neu installieren und erneut versuchen",
+  "Only Steam and Store games install from Mantel": "Aus Mantel lassen sich nur Steam- und Store-Spiele installieren",
+  "Cancel it in the Xbox app or the Microsoft Store": "Brich es in der Xbox-App oder im Microsoft Store ab",
 };

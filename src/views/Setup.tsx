@@ -18,7 +18,7 @@ const STEPS = ["language", "games", "start", "done"] as const;
 const STEP_LABEL: Record<(typeof STEPS)[number], string> = { language: "Language", games: "Games", start: "Start", done: "Play" };
 
 /** English first, the rest by their own names. */
-const LANGUAGE_ORDER = ["en", "de", "es", "fr", "ru"];
+const LANGUAGE_ORDER = ["en", "de", "es", "fr", "pl", "ru"];
 const nativeName = (id: string) => LANGUAGES.find((l) => l.id === id)?.label ?? id;
 
 /** Every store Mantel reads, whether or not this PC has games from it. */
@@ -149,6 +149,12 @@ function SetupScreen({ step }: { step: number }) {
         // Windows' own language stays "follow Windows", as Settings' System does.
         const value = lang === windows ? "" : lang;
         if (!settings || settings.language === value) return next();
+        // Already showing in that language (a Windows language Mantel doesn't have falls back to
+        // English): saving it doesn't remount anything, so there's nothing to clear first.
+        if (lang === current) {
+          void saveSettings({ language: value });
+          return next();
+        }
         // A new language remounts the whole interface: clear this step first, then the next one
         // comes in, already in that language.
         setLeaving(true);

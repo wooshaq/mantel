@@ -1,6 +1,7 @@
 import { de } from "./locales/de";
 import { es } from "./locales/es";
 import { fr } from "./locales/fr";
+import { pl } from "./locales/pl";
 import { ru } from "./locales/ru";
 
 /** Forms of a counted phrase, by `Intl.PluralRules` category; `other` is the fallback. */
@@ -11,9 +12,9 @@ export type Catalog = Record<string, string | Plural>;
  * Interface languages. The code is written in English and English strings are the lookup
  * keys, so a missing translation shows the English text rather than a key.
  */
-const CATALOGS: Record<string, Catalog> = { en: {}, de, es, fr, ru };
-const LOCALES: Record<string, string> = { en: "en-US", fr: "fr-FR", de: "de-DE", es: "es-ES", ru: "ru-RU" };
-const STEAM: Record<string, string> = { fr: "french", de: "german", es: "spanish", ru: "russian" };
+const CATALOGS: Record<string, Catalog> = { en: {}, de, es, fr, pl, ru };
+const LOCALES: Record<string, string> = { en: "en-US", fr: "fr-FR", de: "de-DE", es: "es-ES", pl: "pl-PL", ru: "ru-RU" };
+const STEAM: Record<string, string> = { fr: "french", de: "german", es: "spanish", pl: "polish", ru: "russian" };
 
 /** Settings value "" follows Windows. Labels are in their own language, as consoles do. */
 export const LANGUAGES: { id: string; label: string }[] = [
@@ -22,6 +23,7 @@ export const LANGUAGES: { id: string; label: string }[] = [
   { id: "en", label: "English" },
   { id: "es", label: "Español" },
   { id: "fr", label: "Français" },
+  { id: "pl", label: "Polski" },
   { id: "ru", label: "Русский" },
 ];
 
