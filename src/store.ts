@@ -604,6 +604,11 @@ export async function startInstall(game: Game, anyway = false, chosen?: string[]
   if (!anyway && (await checkAccess(game)) === false) return dropInstall(game.id);
   try {
     await api.installGame(game.id, chosen);
+    // A Store game opens on its page in the Xbox app, which installs it: Mantel doesn't follow it.
+    if (game.source !== "steam") {
+      dropInstall(game.id);
+      toast(t("{name} opens in the Xbox app: install it there", { name: game.name }));
+    }
   } catch (e) {
     dropInstall(game.id);
     toast(errorText(e), "warn");
@@ -663,10 +668,10 @@ async function rescanFresh() {
 
 export async function uninstall(game: Game) {
   try {
-    // Steam takes it from here, with a dialog of its own.
+    // Steam takes it from here, with a dialog of its own; a Store game goes in Windows Settings.
     if (game.source === "steam") toast(t("Opening {store} to uninstall {name}", { store: sourceLabel(game), name: game.name }));
-    else set({ uninstalling: game.id });
     await api.uninstallGame(game.id);
+    if (game.source !== "steam") toast(t("Uninstall {name} in Windows Settings, then come back", { name: game.name }));
   } catch (e) {
     set({ uninstalling: null });
     toast(t("Couldn't uninstall {name}: {error}", { name: game.name, error: errorText(e) }), "warn");

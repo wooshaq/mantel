@@ -10,6 +10,8 @@ use crate::model::{Game, Launch};
 use crate::store::{CustomGame, ResolvedArt, Settings, UserData};
 
 pub use steam::cdn_art as steam_cdn_art;
+#[cfg(windows)]
+pub(crate) use windows_stores::installed_packages;
 pub use steam::current_user as steam_user;
 
 #[derive(Default)]
@@ -26,7 +28,7 @@ impl Scan {
     }
 }
 
-/// Scans every enabled store in parallel. Xbox goes through PowerShell and takes the longest.
+/// Scans every enabled store in parallel.
 pub fn scan_all(settings: &Settings, custom: &[CustomGame]) -> Scan {
     let s = &settings.sources;
     let mut out = Scan::default();

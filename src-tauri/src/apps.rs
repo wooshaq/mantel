@@ -67,7 +67,7 @@ const JUNK: &[&str] = &[
     "license", "documentation", "changelog", "feedback", "redist", "crash", "report", "debug",
 ];
 
-/// One entry of the Start menu, as the PowerShell query reports it.
+/// One entry of the Start menu, as start_apps() reads it.
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct StartApp {
@@ -368,39 +368,108 @@ pub fn edge() -> Option<String> {
     None
 }
 
-/// Every Start menu entry with what's needed to tell its kind: shortcuts' targets, Store
-/// apps' folders.
+/// Every .lnk under `root`, folders included.
 #[cfg(windows)]
-const START_QUERY: &str = r#"
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$ErrorActionPreference = 'SilentlyContinue'
-$sh = New-Object -ComObject WScript.Shell
-$lnk = @{}
-foreach ($r in @("$env:APPDATA\Microsoft\Windows\Start Menu\Programs", "$env:ProgramData\Microsoft\Windows\Start Menu\Programs")) {
-  if (Test-Path -LiteralPath $r) {
-    Get-ChildItem -LiteralPath $r -Recurse -Filter *.lnk | ForEach-Object {
-      if (-not $lnk.ContainsKey($_.BaseName)) {
-        $s = $sh.CreateShortcut($_.FullName)
-        $lnk[$_.BaseName] = @{ target = $s.TargetPath; args = $s.Arguments; icon = $s.IconLocation }
-      }
+pub(crate) fn lnk_files(root: &Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            match entry.file_type() {
+                Ok(t) if t.is_dir() => dirs.push(path),
+                Ok(_) if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("lnk")) => out.push(path),
+                _ => {}
+            }
+        }
     }
-  }
+    out.sort();
+    out
 }
-$pk = @{}
-Get-AppxPackage | ForEach-Object { $pk[$_.PackageFamilyName] = $_.InstallLocation }
-$out = Get-StartApps | ForEach-Object {
-  $fam = $null
-  if ($_.AppID -match '^([^!\\]+)!') { $fam = $Matches[1] }
-  $l = $lnk[$_.Name]
-  [pscustomobject]@{ name = $_.Name; appId = $_.AppID; location = $(if ($fam) { $pk[$fam] } else { $null }); target = $l.target; args = $l.args; icon = $l.icon }
-}
-ConvertTo-Json -InputObject @($out) -Compress
-"#;
 
+/// The Start menu's two Programs folders: the player's, then everyone's.
+#[cfg(windows)]
+pub(crate) fn start_menu_dirs() -> Vec<std::path::PathBuf> {
+    [("APPDATA", r"Microsoft\Windows\Start Menu\Programs"), ("ProgramData", r"Microsoft\Windows\Start Menu\Programs")]
+        .iter()
+        .filter_map(|(var, rel)| std::env::var_os(var).map(|base| Path::new(&base).join(rel)))
+        .filter(|d| d.is_dir())
+        .collect()
+}
+
+/// The entries of the Start menu's app list (shell:AppsFolder), as (name, app id): what
+/// Get-StartApps lists, read from the Shell itself.
+#[cfg(windows)]
+fn apps_folder() -> Vec<(String, String)> {
+    use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, CoUninitialize, COINIT_APARTMENTTHREADED};
+    use windows::Win32::UI::Shell::{BHID_EnumItems, FOLDERID_AppsFolder, IEnumShellItems, IShellItem, SHGetKnownFolderItem, KF_FLAG_DEFAULT, SIGDN, SIGDN_NORMALDISPLAY, SIGDN_PARENTRELATIVEPARSING};
+    // COM on a thread of its own, as in pick::shortcut.
+    std::thread::spawn(|| unsafe {
+        let ready = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
+        let read = || -> windows::core::Result<Vec<(String, String)>> {
+            let folder: IShellItem = SHGetKnownFolderItem(&FOLDERID_AppsFolder, KF_FLAG_DEFAULT, None)?;
+            let items: IEnumShellItems = folder.BindToHandler(None, &BHID_EnumItems)?;
+            let name = |item: &IShellItem, kind: SIGDN| -> Option<String> {
+                let p = item.GetDisplayName(kind).ok()?;
+                let text = p.to_string().ok();
+                CoTaskMemFree(Some(p.0 as _));
+                text
+            };
+            let mut out = Vec::new();
+            loop {
+                let mut batch = [None];
+                let mut fetched = 0u32;
+                if items.Next(&mut batch, Some(&mut fetched)).is_err() || fetched == 0 {
+                    break;
+                }
+                let Some(item) = batch[0].take() else { break };
+                if let (Some(n), Some(id)) = (name(&item, SIGDN_NORMALDISPLAY), name(&item, SIGDN_PARENTRELATIVEPARSING)) {
+                    out.push((n, id));
+                }
+            }
+            Ok(out)
+        };
+        let found = read();
+        if ready {
+            CoUninitialize();
+        }
+        found.map_err(|e| crate::log::warn(&format!("Start menu not read: {e}"))).unwrap_or_default()
+    })
+    .join()
+    .unwrap_or_default()
+}
+
+/// Every Start menu entry with what's needed to tell its kind: shortcuts' targets, Store
+/// apps' folders. Read through the Shell and PackageManager directly: no PowerShell.
 #[cfg(windows)]
 pub fn start_apps() -> Vec<StartApp> {
-    let Some(text) = crate::pick::run_powershell(START_QUERY) else { return Vec::new() };
-    serde_json::from_str(text.trim().trim_start_matches('\u{feff}')).unwrap_or_default()
+    let mut links: std::collections::HashMap<String, crate::pick::Shortcut> = std::collections::HashMap::new();
+    for lnk in start_menu_dirs().iter().flat_map(|d| lnk_files(d)) {
+        let Some(base) = lnk.file_stem().map(|s| s.to_string_lossy().to_string()) else { continue };
+        if links.contains_key(&base) {
+            continue;
+        }
+        if let Some(s) = crate::pick::shortcut(&lnk.to_string_lossy()) {
+            links.insert(base, s);
+        }
+    }
+    let packages: std::collections::HashMap<String, String> = crate::library::installed_packages().into_iter().collect();
+    apps_folder()
+        .into_iter()
+        .map(|(name, app_id)| {
+            let location = app_id.split_once('!').map(|(family, _)| family).filter(|f| !f.contains('\\')).and_then(|f| packages.get(f).cloned());
+            let link = links.get(&name);
+            StartApp {
+                name,
+                app_id,
+                location,
+                target: link.map(|l| l.target.clone()),
+                args: link.map(|l| l.arguments.clone()),
+                icon: link.map(|l| l.icon.clone()),
+            }
+        })
+        .collect()
 }
 
 #[cfg(not(windows))]

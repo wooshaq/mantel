@@ -405,6 +405,8 @@ export const ru: Catalog = {
   "{name} was uninstalled": "Игра «{name}» удалена",
   "Couldn't uninstall {name}: {error}": "Не удалось удалить «{name}»: {error}",
   "Opening {store} to uninstall {name}": "Открывается {store} для удаления {name}",
+  "{name} opens in the Xbox app: install it there": "{name} откроется в приложении Xbox: установите там",
+  "Uninstall {name} in Windows Settings, then come back": "Удалите {name} в параметрах Windows и вернитесь",
   "Install anyway": "Всё равно установить",
   "This game isn't on your Microsoft account. Without an active Game Pass or a purchase it won't start after downloading.": "Этой игры нет на вашем аккаунте Microsoft. Без активного Game Pass или покупки она не запустится после загрузки.",
   "That screen couldn't open": "Не удалось открыть этот экран",

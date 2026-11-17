@@ -1,5 +1,6 @@
-//! Uninstalling games: Store packages through Windows directly, Steam games through Steam's own
-//! dialog. Either way "game-uninstalled" says when the game is gone.
+//! Uninstalling games: Steam games through Steam's own dialog, and "game-uninstalled" says when
+//! the game is gone. A Store game is uninstalled in Windows Settings, which this opens: this build
+//! (wooshaq) never removes packages itself, so it never runs PowerShell.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -11,43 +12,6 @@ use crate::model::Game;
 
 /// How long Steam's dialog may wait for an answer before Mantel stops watching for one.
 const STEAM_WAIT: Duration = Duration::from_secs(600);
-
-/// Prints nothing, or "error <message>" when Windows refuses.
-#[cfg(windows)]
-const REMOVE: &str = r#"
-$ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-try {
-  $p = Get-AppxPackage | Where-Object { $_.PackageFamilyName -eq '{family}' }
-  if (-not $p) { 'error This game is no longer installed'; exit }
-  $p | Remove-AppxPackage
-} catch {
-  'error {0}' -f ($_.Exception.Message -split "`n")[0]
-}
-"#;
-
-/// Package family names are letters, digits, dots, dashes and underscores; anything else never
-/// reaches a script.
-fn checked(family: &str) -> Result<&str, String> {
-    (!family.is_empty() && family.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
-        .then_some(family)
-        .ok_or_else(|| format!("Not a Store package: {family}"))
-}
-
-#[cfg(windows)]
-fn remove_package(family: &str) -> Result<(), String> {
-    let out = crate::install::powershell(&REMOVE.replace("{family}", checked(family)?)).output().map_err(|e| format!("Couldn't start the uninstaller: {e}"))?;
-    match String::from_utf8_lossy(&out.stdout).lines().find_map(|l| l.trim().strip_prefix("error ")) {
-        Some(message) => Err(message.trim().to_string()),
-        None => Ok(()),
-    }
-}
-
-#[cfg(not(windows))]
-fn remove_package(family: &str) -> Result<(), String> {
-    checked(family)?;
-    Err("Uninstalling needs Windows".into())
-}
 
 /// Steam asks the player itself and does the removing; the game's manifest going away says it's
 /// done. It sits two folders above the game: steamapps/common/<game>.
@@ -83,25 +47,13 @@ fn gone(app: &AppHandle, id: &str) {
     let _ = app.emit("game-uninstalled", id);
 }
 
-/// Starts removing an installed game. A Store game is gone when this returns; Steam's dialog
-/// stays open after it.
+/// Starts removing an installed game: Steam's dialog, or Windows Settings' list of apps for a
+/// Store game, where the player removes it; the next scan notices.
 pub fn start(app: &AppHandle, game: &Game) -> Result<(), String> {
     crate::log::info(&format!("uninstall {}", game.id));
     match game.source.as_str() {
-        "xbox" => remove_package(&game.source_id).map(|_| gone(app, &game.id)),
+        "xbox" => crate::launcher::open_external("ms-settings:appsfeatures"),
         "steam" => steam(app, game),
         _ => Err("Mantel can only uninstall Xbox and Steam games for now".into()),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn checks_package_names() {
-        assert!(checked("CRITICALREFLEX.Mouthwashing_20ymd9g5r2c54").is_ok());
-        assert!(checked("x'; Remove-Item C:\\").is_err());
-        assert!(checked("").is_err());
     }
 }

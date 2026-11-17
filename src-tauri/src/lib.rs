@@ -325,28 +325,24 @@ async fn gamepass_catalog(state: State<'_, AppState>, language: String) -> Resul
     }
 }
 
-/// Installs a Game Pass game through Windows' Store installer; progress arrives as
-/// "install-progress" events.
+/// Installs a game: Steam's through Steam's own dialog, with progress as "install-progress" events.
+/// A Store game opens on its page in the Xbox app (or the Microsoft Store), which installs it: this
+/// build never drives Windows' installer itself.
 #[tauri::command]
 fn install_game(app: AppHandle, state: State<'_, AppState>, id: String, chosen: Option<Vec<String>>) -> Result<(), String> {
     if id.starts_with(steam_install::ID_PREFIX) {
         return steam_install::start(&app, &id);
     }
-    let product = store_product(&state, &id).ok_or("Only Store games install from Mantel")?;
-    let targets = chosen.unwrap_or_else(|| vec![product.clone()]);
-    // A catalog bundle's own packages; anywhere else, what was asked for.
-    let packages = if id.starts_with(gamepass::ID_PREFIX) { gamepass::packages(&state.cache.lock().unwrap().gamepass, &product) } else { targets.clone() };
-    install::start(&app, &id, &targets, &packages)
+    let product = chosen.and_then(|c| c.into_iter().next()).or_else(|| store_product(&state, &id)).ok_or("Only Steam and Store games install from Mantel")?;
+    launcher::open_external(&format!("{}{}", gamepass::install_uri(), xbox_store::checked(&product)?))
 }
 
 #[tauri::command]
-async fn cancel_install(state: State<'_, AppState>, id: String) -> Result<(), String> {
+fn cancel_install(id: String) -> Result<(), String> {
     if id.starts_with(steam_install::ID_PREFIX) {
         return steam_install::cancel(&id);
     }
-    let product = store_product(&state, &id).ok_or("Not an install from Mantel")?;
-    let packages = install::started(&id).unwrap_or_else(|| gamepass::packages(&state.cache.lock().unwrap().gamepass, &product));
-    tauri::async_runtime::spawn_blocking(move || install::cancel(&packages)).await.map_err(|e| e.to_string())?
+    Err("Cancel it in the Xbox app or the Microsoft Store".into())
 }
 
 /// Installs under way, for a UI that just (re)loaded.
@@ -364,11 +360,11 @@ async fn uninstall_game(app: AppHandle, state: State<'_, AppState>, id: String) 
     tauri::async_runtime::spawn_blocking(move || uninstall::start(&app, &game)).await.map_err(|e| e.to_string())?
 }
 
-/// Whether a Store game is on the player's Microsoft account; nothing when the Store can't say.
+/// Whether a Store game is on the player's account: asking needs Windows' installer, which this
+/// build doesn't use, so the answer is always "can't say" and the Store tells instead.
 #[tauri::command]
-async fn install_access(state: State<'_, AppState>, id: String) -> Result<Option<bool>, String> {
-    let Some(product) = store_product(&state, &id) else { return Ok(None) };
-    tauri::async_runtime::spawn_blocking(move || install::on_account(&product)).await.map_err(|e| e.to_string())
+fn install_access(_id: String) -> Option<bool> {
+    None
 }
 
 /// A game's editions on sale, from any card of it. `id` is a store entry's, or a played game's.
@@ -378,16 +374,10 @@ async fn xbox_editions(state: State<'_, AppState>, id: String, language: String)
     Ok(xbox_store::editions(xbox_store::checked(&product)?, &language).await)
 }
 
-/// Whether an edition is on the account: its own licence, or every product inside it.
+/// Whether an edition is on the account: unknown here, as with install_access.
 #[tauri::command]
-async fn edition_on_account(id: String, parts: Vec<String>) -> Option<bool> {
-    tauri::async_runtime::spawn_blocking(move || match install::on_account(&id) {
-        Some(false) if !parts.is_empty() => parts.iter().try_fold(true, |all, part| Some(all && install::on_account(part)?)),
-        answer => answer,
-    })
-    .await
-    .ok()
-    .flatten()
+fn edition_on_account(_id: String, _parts: Vec<String>) -> Option<bool> {
+    None
 }
 
 #[tauri::command]
@@ -400,23 +390,10 @@ async fn steam_store_search(query: String, language: String) -> Result<Vec<Game>
     steam_store::search(&query, &language).await
 }
 
+/// Steam installs under way; Store installs are the Xbox app's business in this build.
 #[tauri::command]
-async fn installs_under_way(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let busy = tauri::async_runtime::spawn_blocking(install::under_way).await.unwrap_or_default();
-    let cache = state.cache.lock().unwrap();
-    let played = cache.owned_xbox.iter().filter(|t| t.product_id.as_ref().is_some_and(|p| busy.contains(p))).map(|t| format!("xbox:{}", t.pfn));
-    let listed = busy.iter().map(|product| format!("{}{product}", xbox_store::ID_PREFIX));
-    Ok(cache
-        .gamepass
-        .games
-        .iter()
-        .filter_map(|g| g.id.strip_prefix(gamepass::ID_PREFIX))
-        .filter(|product| gamepass::is_under_way(&cache.gamepass, product, &busy))
-        .map(String::from)
-        .chain(played)
-        .chain(listed)
-        .chain(steam_install::under_way())
-        .collect())
+fn installs_under_way() -> Vec<String> {
+    steam_install::under_way()
 }
 
 /// The Store product behind a game: in the id of a catalog or store entry, and in the play history

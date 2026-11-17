@@ -370,6 +370,8 @@ export const fr: Catalog = {
   "{name} was uninstalled": "Désinstallation terminée : {name}",
   "Couldn't uninstall {name}: {error}": "Impossible de désinstaller {name} : {error}",
   "Opening {store} to uninstall {name}": "Ouverture de {store} pour désinstaller {name}",
+  "{name} opens in the Xbox app: install it there": "{name} s'ouvre dans l'application Xbox : installez-le là-bas",
+  "Uninstall {name} in Windows Settings, then come back": "Désinstallez {name} dans les Paramètres Windows, puis revenez",
   "Install anyway": "Installer quand même",
   "This game isn't on your Microsoft account. Without an active Game Pass or a purchase it won't start after downloading.": "Ce jeu n’est pas sur votre compte Microsoft. Sans Game Pass actif ni achat, il ne démarrera pas après le téléchargement.",
   "That screen couldn't open": "Impossible d’ouvrir cet écran",

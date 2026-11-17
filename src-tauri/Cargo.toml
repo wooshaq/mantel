@@ -35,6 +35,10 @@ png = "0.18"
 winreg = "0.55"
 # COM interfaces for the control center: Core Audio volume and WMI brightness.
 windows = { version = "0.62", features = [
+  # Listing installed Store packages (Xbox games) without PowerShell.
+  "ApplicationModel",
+  "Foundation_Collections",
+  "Management_Deployment",
   "Win32_Foundation",
   "Win32_Media_Audio",
   "Win32_Media_Audio_Endpoints",

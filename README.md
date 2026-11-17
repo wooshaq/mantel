@@ -29,10 +29,9 @@ TV PC.
   Xbox games you've played. The Xbox tab is the PC Game Pass catalog and the Microsoft Store,
   the Steam tab the Steam store, each with lists by genre and shelves that open into full
   grids. Search reaches both stores too. Buying happens in the store itself.
-- **Install from the couch.** Game Pass games and anything else on your Microsoft account
-  install right in Mantel through Windows' own installer, with a list of editions showing
-  what's yours and what the others cost. Steam games go through Steam's dialog. Progress, speed and time left show on the
-  home screen, downloads carry on with Mantel closed, and uninstalling works the same way.
+- **Install from the couch.** Steam games install through Steam's dialog, with progress on the
+  home screen. In this build (wooshaq) Game Pass and Store games open on their page in the Xbox
+  app, which installs them, and uninstall in Windows Settings: Mantel never runs PowerShell.
 - **In your language.** English, French, German, Spanish and Russian.
 - **Achievements.** With an account connected, every Steam and Xbox game shows its
   progress, and its page lists each achievement with rarity and gamerscore.
@@ -56,7 +55,8 @@ Download `Mantel_x.y.z_x64-setup.exe` from
 setup asks for your language, signs you in to Steam and Xbox if you like, and can make Mantel
 start with Windows. Settings → System →
 *Run setup again* brings it back. This build (wooshaq) has no auto-updater (it never downloads or installs anything by itself) and
-never sets itself as the home app of Xbox mode: no package registration, no Developer Mode.
+never sets itself as the home app of Xbox mode: no package registration, no Developer Mode. It
+runs no PowerShell either: Store packages and Start menu entries are read through Windows' own APIs.
 
 The installer isn't code-signed yet, so Windows may show "Windows protected your PC":
 choose *More info → Run anyway*. Signing will come through SignPath Foundation; see the

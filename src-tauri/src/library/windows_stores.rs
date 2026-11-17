@@ -2,8 +2,6 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
-
 use super::{reg, Scan};
 use crate::model::{Game, Launch};
 
@@ -73,49 +71,72 @@ pub fn scan_ubisoft() -> Scan {
     Scan { games, asset_dirs: Vec::new() }
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct AppxGame {
     family: String,
     location: String,
     app_id: Option<String>,
     display: Option<String>,
     /// Depends on a main package: an add-on, not a game.
-    #[serde(default)]
     optional: bool,
+}
+
+/// What a package's AppxManifest.xml says: its first app's id, its display name, and whether it
+/// depends on a main package (an add-on). The same fields Get-AppxPackageManifest gave before.
+fn parse_appx_manifest(text: &str) -> (Option<String>, Option<String>, bool) {
+    let Ok(doc) = roxmltree::Document::parse(text) else { return (None, None, false) };
+    let named = |name: &str| doc.descendants().find(|n| n.is_element() && n.tag_name().name() == name);
+    let app_id = named("Application").and_then(|n| n.attribute("Id")).map(String::from);
+    let display = doc
+        .root_element()
+        .children()
+        .find(|n| n.is_element() && n.tag_name().name() == "Properties")
+        .and_then(|p| p.children().find(|n| n.is_element() && n.tag_name().name() == "DisplayName"))
+        .and_then(|n| n.text())
+        .map(|t| t.trim().to_string());
+    (app_id, display, named("MainPackageDependency").is_some())
+}
+
+/// Every Store package installed for the signed-in user, as (family name, install folder), from
+/// Windows' own PackageManager: no PowerShell, no admin rights.
+pub(crate) fn installed_packages() -> Vec<(String, String)> {
+    use windows::core::HSTRING;
+    use windows::Management::Deployment::PackageManager;
+    let list = || -> windows::core::Result<Vec<(String, String)>> {
+        let mut out = Vec::new();
+        for pkg in PackageManager::new()?.FindPackagesByUserSecurityId(&HSTRING::new())? {
+            let (Ok(id), Ok(path)) = (pkg.Id(), pkg.InstalledPath()) else { continue };
+            if let Ok(family) = id.FamilyName() {
+                out.push((family.to_string(), path.to_string()));
+            }
+        }
+        Ok(out)
+    };
+    list().unwrap_or_else(|e| {
+        crate::log::warn(&format!("listing Store packages failed: {e}"));
+        Vec::new()
+    })
 }
 
 /// Packages that ship a MicrosoftGame.config are GDK games (Game Pass, Xbox app, Store), or their
 /// add-ons: DLC and content packs ship one too, and say which game they belong to.
-const XBOX_QUERY: &str = r#"
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$ErrorActionPreference = 'SilentlyContinue'
-$out = foreach ($p in Get-AppxPackage) {
-  $loc = $p.InstallLocation
-  if (-not $loc -or -not (Test-Path -LiteralPath (Join-Path $loc 'MicrosoftGame.config'))) { continue }
-  $m = Get-AppxPackageManifest -Package $p.PackageFullName
-  $app = @($m.Package.Applications.Application)[0]
-  $main = [bool]$m.Package.Dependencies.MainPackageDependency
-  [pscustomobject]@{ family = $p.PackageFamilyName; location = $loc; appId = $app.Id; display = $m.Package.Properties.DisplayName; optional = $main }
+fn appx_games() -> Vec<AppxGame> {
+    installed_packages()
+        .into_iter()
+        .filter(|(_, location)| !location.is_empty() && Path::new(location).join("MicrosoftGame.config").is_file())
+        .map(|(family, location)| {
+            let text = std::fs::read_to_string(Path::new(&location).join("AppxManifest.xml")).unwrap_or_default();
+            let (app_id, display, optional) = parse_appx_manifest(&text);
+            AppxGame { family, location, app_id, display, optional }
+        })
+        .collect()
 }
-ConvertTo-Json -InputObject @($out) -Compress
-"#;
 
 fn is_launcher(name: &str) -> bool {
     name.trim().to_lowercase().ends_with(" launcher")
 }
 
 pub fn scan_xbox() -> Scan {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-    let output = std::process::Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", XBOX_QUERY])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
-    let Ok(output) = output else { return Scan::default() };
-    let text = String::from_utf8_lossy(&output.stdout);
-    let Ok(found) = serde_json::from_str::<Vec<AppxGame>>(text.trim().trim_start_matches('\u{feff}')) else { return Scan::default() };
+    let found = appx_games();
 
     let mut scan = Scan::default();
     for pkg in found {
@@ -207,6 +228,23 @@ fn folder_name(loc: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_appx_manifests() {
+        let game = r#"<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+  <Identity Name="Studio.Game" Publisher="CN=X" Version="1.0.0.0" />
+  <Properties><DisplayName>Some Game</DisplayName></Properties>
+  <Applications><Application Id="Game" Executable="game.exe" /></Applications>
+</Package>"#;
+        assert_eq!(parse_appx_manifest(game), (Some("Game".into()), Some("Some Game".into()), false));
+        let dlc = r#"<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3">
+  <Properties><DisplayName>ms-resource:Dlc</DisplayName></Properties>
+  <Dependencies><uap3:MainPackageDependency Name="Studio.Game" /></Dependencies>
+</Package>"#;
+        assert_eq!(parse_appx_manifest(dlc), (None, Some("ms-resource:Dlc".into()), true));
+        assert_eq!(parse_appx_manifest("not xml"), (None, None, false));
+    }
 
     /// Shaped like Microsoft's sample DLC config for the GDK.
     const CONTENT_PACK: &str = r##"<?xml version="1.0" encoding="utf-8"?>

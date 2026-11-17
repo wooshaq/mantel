@@ -142,23 +142,22 @@ const LAUNCHERS: &[&str] = &[
 /// Start menu and desktop shortcuts to games, minus tools, docs and uninstallers.
 #[cfg(windows)]
 pub fn suggestions(known_dirs: &[String]) -> Vec<Suggestion> {
-    const QUERY: &str = r#"
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$ErrorActionPreference = 'SilentlyContinue'
-$sh = New-Object -ComObject WScript.Shell
-$roots = @("$env:APPDATA\Microsoft\Windows\Start Menu\Programs", "$env:ProgramData\Microsoft\Windows\Start Menu\Programs", [Environment]::GetFolderPath('Desktop'), "$env:PUBLIC\Desktop")
-$out = foreach ($r in $roots) {
-  if (Test-Path -LiteralPath $r) {
-    Get-ChildItem -LiteralPath $r -Recurse -Filter *.lnk | ForEach-Object {
-      $t = $sh.CreateShortcut($_.FullName).TargetPath
-      if ($t -like '*.exe') { [pscustomobject]@{ name = $_.BaseName; path = $_.FullName; target = $t } }
-    }
-  }
-}
-ConvertTo-Json -InputObject @($out) -Compress
-"#;
-    let Some(text) = powershell(QUERY) else { return Vec::new() };
-    let Ok(mut found) = serde_json::from_str::<Vec<Suggestion>>(text.trim().trim_start_matches('\u{feff}')) else { return Vec::new() };
+    // The Start menu, the player's desktop (wherever it's redirected) and everyone's desktop.
+    let mut roots = crate::apps::start_menu_dirs();
+    roots.extend(desktop());
+    roots.extend(std::env::var_os("PUBLIC").map(|p| Path::new(&p).join("Desktop")));
+    let mut found: Vec<Suggestion> = roots
+        .iter()
+        .flat_map(|r| crate::apps::lnk_files(r))
+        .filter_map(|lnk| {
+            let target = shortcut_target(&lnk.to_string_lossy())?;
+            target.to_lowercase().ends_with(".exe").then(|| Suggestion {
+                name: lnk.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(),
+                path: lnk.to_string_lossy().to_string(),
+                target,
+            })
+        })
+        .collect();
     let junk = [
         "uninstall", "readme", "help", "manual", "website", "support", "update", "setup", "config", "settings",
         "crash", "report", "license", "documentation", "release notes", "changelog", "feedback", "redist",
@@ -184,17 +183,55 @@ pub fn suggestions(_known_dirs: &[String]) -> Vec<Suggestion> {
     Vec::new()
 }
 
+/// The player's desktop folder, where Windows keeps it (it may be redirected to OneDrive).
+#[cfg(windows)]
+fn desktop() -> Option<std::path::PathBuf> {
+    use windows::Win32::System::Com::CoTaskMemFree;
+    use windows::Win32::UI::Shell::{FOLDERID_Desktop, SHGetKnownFolderPath, KF_FLAG_DEFAULT};
+    unsafe {
+        let p = SHGetKnownFolderPath(&FOLDERID_Desktop, KF_FLAG_DEFAULT, None).ok()?;
+        let path = p.to_string().ok();
+        CoTaskMemFree(Some(p.0 as _));
+        path.map(Into::into)
+    }
+}
+
+/// A string from an exe's version resource, like "ProductName", in its first listed language.
+#[cfg(windows)]
+fn version_string(exe: &str, key: &str) -> Option<String> {
+    use windows::core::HSTRING;
+    use windows::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW};
+    unsafe {
+        let path = HSTRING::from(exe);
+        let size = GetFileVersionInfoSizeW(&path, None);
+        if size == 0 {
+            return None;
+        }
+        let mut data = vec![0u8; size as usize];
+        GetFileVersionInfoW(&path, None, size, data.as_mut_ptr().cast()).ok()?;
+        let (mut ptr, mut len) = (std::ptr::null_mut(), 0u32);
+        let lang = if VerQueryValueW(data.as_ptr().cast(), &HSTRING::from(r"\VarFileInfo\Translation"), &mut ptr, &mut len).as_bool() && len >= 4 {
+            let pair = std::slice::from_raw_parts(ptr as *const u16, 2);
+            format!("{:04x}{:04x}", pair[0], pair[1])
+        } else {
+            "040904b0".to_string()
+        };
+        let query = HSTRING::from(format!(r"\StringFileInfo\{lang}\{key}"));
+        if !VerQueryValueW(data.as_ptr().cast(), &query, &mut ptr, &mut len).as_bool() || len == 0 {
+            return None;
+        }
+        let text = String::from_utf16_lossy(std::slice::from_raw_parts(ptr as *const u16, len as usize));
+        Some(text.trim_end_matches('\0').trim().to_string()).filter(|t| !t.is_empty())
+    }
+}
+
 /// Product name from the exe's version resource, e.g. "Dying Light 2 Stay Human".
 #[cfg(windows)]
 pub fn product_name(exe: &str) -> Option<String> {
-    let escaped = exe.replace('\'', "''");
-    let script = format!(
-        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $v = (Get-Item -LiteralPath '{escaped}').VersionInfo; if ($v.ProductName) {{ $v.ProductName }} else {{ $v.FileDescription }}"
-    );
-    let name = powershell(&script)?.trim().trim_start_matches('\u{feff}').to_string();
+    let name = version_string(exe, "ProductName").or_else(|| version_string(exe, "FileDescription"))?;
     // Engine boilerplate is not a game name.
     let generic = ["unreal engine", "unity", "bootstrap", "launcher", "game"];
-    (!name.is_empty() && !generic.contains(&name.to_lowercase().as_str())).then_some(name)
+    (!generic.contains(&name.to_lowercase().as_str())).then_some(name)
 }
 
 #[cfg(not(windows))]
@@ -211,6 +248,8 @@ pub struct Shortcut {
     pub working_dir: String,
     /// Set to run as administrator, which only the shell can ask for.
     pub elevated: bool,
+    /// The icon, as "path,index" like WScript.Shell's IconLocation.
+    pub icon: String,
 }
 
 /// Reads a shortcut through the Shell's own interface. WScript.Shell loses characters like the ’
@@ -240,7 +279,11 @@ pub fn shortcut(lnk: &str) -> Option<Shortcut> {
             let arguments = text(&|b| link.GetArguments(b))?;
             let working_dir = text(&|b| link.GetWorkingDirectory(b))?;
             let flags = link.cast::<IShellLinkDataList>().and_then(|d| d.GetFlags()).unwrap_or(0);
-            Ok(Shortcut { target, arguments, working_dir, elevated: flags & SLDF_RUNAS_USER.0 as u32 != 0 })
+            let (mut icon_buf, mut index) = (vec![0u16; 32_768], 0);
+            link.GetIconLocation(&mut icon_buf, &mut index)?;
+            let icon_path = String::from_utf16_lossy(&icon_buf[..icon_buf.iter().position(|&c| c == 0).unwrap_or(icon_buf.len())]);
+            let icon = format!("{icon_path},{index}");
+            Ok(Shortcut { target, arguments, working_dir, elevated: flags & SLDF_RUNAS_USER.0 as u32 != 0, icon })
         };
         let shortcut = read();
         if ready {
@@ -261,12 +304,6 @@ pub fn shortcut(_lnk: &str) -> Option<Shortcut> {
 /// Where a shortcut points.
 pub fn shortcut_target(lnk: &str) -> Option<String> {
     shortcut(lnk).map(|s| s.target).filter(|t| !t.is_empty())
-}
-
-/// Runs a PowerShell script without a window and returns what it printed.
-#[cfg(windows)]
-pub(crate) fn run_powershell(script: &str) -> Option<String> {
-    powershell(script)
 }
 
 #[cfg(all(test, windows))]
@@ -307,14 +344,3 @@ pub(crate) mod tests {
     }
 }
 
-#[cfg(windows)]
-fn powershell(script: &str) -> Option<String> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let out = std::process::Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .ok()?;
-    Some(String::from_utf8_lossy(&out.stdout).to_string())
-}

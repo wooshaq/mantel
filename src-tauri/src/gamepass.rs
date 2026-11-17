@@ -248,16 +248,6 @@ pub fn entry_for_package<'a>(catalog: &'a Catalog, pfn: &str) -> Option<&'a Game
     catalog.games.iter().find(|g| g.source_id.eq_ignore_ascii_case(pfn) && catalog.details.contains_key(&g.id))
 }
 
-/// Whether a catalog game is on its way, going by what Windows is installing. Bundles share
-/// packages like launchers, so it's the game's own packages that say.
-pub fn is_under_way(catalog: &Catalog, product: &str, busy: &[String]) -> bool {
-    let items = catalog.details.get(&format!("{ID_PREFIX}{product}")).and_then(|d| d.get("items")).and_then(Value::as_array);
-    match items {
-        Some(items) => items.iter().filter(|i| i["kind"] == "main" || i["kind"] == "game").filter_map(|i| i["id"].as_str()).any(|id| busy.iter().any(|b| b == id)),
-        None => packages(catalog, product).iter().all(|p| busy.contains(p)),
-    }
-}
-
 pub(crate) fn parse(p: &Value, install: &str) -> Option<(Game, Value)> {
     let id = p.get("ProductId")?.as_str()?;
     let lp = p.get("LocalizedProperties")?.get(0)?;
@@ -348,17 +338,6 @@ pub(crate) fn parse(p: &Value, install: &str) -> Option<(Game, Value)> {
         "screenshots": screenshots.into_iter().take(10).collect::<Vec<_>>(),
     });
     Some((game, details))
-}
-
-/// What Windows installs for a catalog product: the bundle's products, or the product itself.
-pub fn packages(catalog: &Catalog, product: &str) -> Vec<String> {
-    let bundled = catalog.details.get(&format!("{ID_PREFIX}{product}")).and_then(|d| d.get("bundled")).and_then(Value::as_array);
-    let list: Vec<String> = bundled.into_iter().flatten().filter_map(Value::as_str).map(String::from).collect();
-    if list.is_empty() {
-        vec![product.to_string()]
-    } else {
-        list
-    }
 }
 
 /// The videos this PC can load, for the page's media rail; Steam's trailer when none of
