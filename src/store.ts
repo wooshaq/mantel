@@ -437,7 +437,7 @@ export async function rescan(quiet = false) {
     // Games from other stores that matched a Steam page get its art too, Steam turned on or not.
     if (get().games.some((g) => g.steamAppId) && (await api.resolveSteamFacts().catch(() => false))) set({ games: await api.getLibrary(false) });
     // Sessions from Steam's own log of games it ran, before Steam overwrites the oldest.
-    await api.importSteamHistory().catch(() => 0);
+    await api.importSteamHistory().catch(() => false);
     void refreshAchievements();
     if (await api.refreshHltb().catch(() => false)) set({ games: await api.getLibrary(false) });
     set({ accounts: await api.accountsStatus() });

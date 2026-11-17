@@ -928,20 +928,47 @@ fn hide_window(app: AppHandle) {
     tray::step_aside(&app);
 }
 
-/// Sessions from the Steam client's own log of games it ran, as far back as it keeps it.
-/// How many were new.
+/// Sessions from the Steam client's own log of games it ran, as far back as it keeps it, with
+/// the names of games no longer installed. Programs that aren't games stay out. Whether the
+/// play log changed.
 #[tauri::command]
-async fn import_steam_history(app: AppHandle) -> Result<usize, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let Some(dir) = library::steam_logs_dir() else { return 0 };
-        let added = app.state::<AppState>().import_sessions(steam_history::read(&dir));
-        if added > 0 {
-            log::info(&format!("steam history: {added} sessions from Steam's log"));
+async fn import_steam_history(state: State<'_, AppState>) -> Result<bool, String> {
+    let found = tauri::async_runtime::spawn_blocking(|| library::steam_logs_dir().map(|dir| steam_history::read(&dir)).unwrap_or_default())
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut ids = steam_history::steam_ids(&found);
+    ids.extend(steam_history::steam_ids(&state.sessions.lock().unwrap()));
+    ids.sort_unstable();
+    ids.dedup();
+    let known = state.cache.lock().unwrap().steam_apps.clone();
+    let fresh = steam_history::app_info(ids, &known).await;
+    let apps = {
+        let mut cache = state.cache.lock().unwrap();
+        if !fresh.is_empty() {
+            cache.steam_apps.extend(fresh);
+            state.save_cache(&cache);
         }
-        added
-    })
-    .await
-    .map_err(|e| e.to_string())
+        cache.steam_apps.clone()
+    };
+    let changed = state.import_sessions(found, &apps);
+    if changed {
+        log::info("steam history: play log updated from Steam's log");
+    }
+    Ok(changed)
+}
+
+/// Names for the Steam games in the play log that aren't in the library, by game id.
+#[tauri::command]
+fn session_names(state: State<'_, AppState>) -> std::collections::HashMap<String, String> {
+    state
+        .cache
+        .lock()
+        .unwrap()
+        .steam_apps
+        .iter()
+        .filter(|(_, a)| !a.name.is_empty())
+        .map(|(id, a)| (format!("steam:{id}"), a.name.clone()))
+        .collect()
 }
 
 /// Every session played, oldest first, for the statistics and each game's history.
@@ -1175,6 +1202,7 @@ pub fn run() {
             set_tray,
             get_sessions,
             import_steam_history,
+            session_names,
             hltb_pick,
             achievement_times,
             set_hltb,

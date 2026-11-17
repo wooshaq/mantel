@@ -666,4 +666,5 @@ export const ru: Catalog = {
   "Or paste the page's address yourself": "Или вставьте адрес страницы сами",
   "Search HowLongToBeat": "Искать на HowLongToBeat",
   "HowLongToBeat is already open": "HowLongToBeat уже открыт",
+  "Steam game {id}": "Игра Steam {id}",
 };

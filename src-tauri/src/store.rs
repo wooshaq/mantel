@@ -140,6 +140,8 @@ pub struct Cache {
     pub steam_public: HashMap<u32, crate::steam_public::Progress>,
     /// Times read from HowLongToBeat, by its game id.
     pub hltb: HashMap<u32, crate::hltb::Hltb>,
+    /// Names and types of Steam apps seen in the play log, from the store.
+    pub steam_apps: HashMap<u32, crate::steam_history::AppInfo>,
 }
 
 /// One stretch of play, as the tracker saw it: start and end in Unix seconds.
@@ -213,14 +215,16 @@ impl AppState {
         write_json(&self.dir.join(CACHE_FILE), cache);
     }
 
-    /// Adds sessions found elsewhere, leaving out what the log has already. How many were new.
-    pub fn import_sessions(&self, found: Vec<Session>) -> usize {
+    /// Adds sessions found elsewhere, leaving out what the log has already, and takes out what
+    /// isn't play. Whether the log changed.
+    pub fn import_sessions(&self, found: Vec<Session>, apps: &HashMap<u32, crate::steam_history::AppInfo>) -> bool {
         let mut sessions = self.sessions.lock().unwrap();
         let added = crate::steam_history::merge(&mut sessions, found);
-        if added > 0 {
+        let pruned = crate::steam_history::prune(&mut sessions, apps);
+        if added > 0 || pruned {
             write_json(&self.dir.join(SESSIONS_FILE), &*sessions);
         }
-        added
+        added > 0 || pruned
     }
 
     /// Adds a finished session to the play log.

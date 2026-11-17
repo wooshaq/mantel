@@ -10,6 +10,79 @@ use crate::store::Session;
 
 /// Sessions shorter than this are launchers that closed at once, not play.
 const MIN_SECS: i64 = 60;
+/// Longer than this isn't a sitting: Steam missed the end (it was closed, or the PC slept with
+/// the game open), or the program runs all day in the background, like a wallpaper app.
+pub const MAX_SECS: i64 = 12 * 3600;
+/// Steam app types that run but aren't games.
+const NOT_GAMES: &[&str] = &["application", "tool", "music", "video", "series", "episode", "hardware", "advertising"];
+
+/// What Steam's store says an app is.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AppInfo {
+    pub name: String,
+    /// "game", "application"…; empty when the store has no page for it.
+    pub kind: String,
+    pub at: i64,
+}
+
+impl AppInfo {
+    pub fn is_game(&self) -> bool {
+        !NOT_GAMES.contains(&self.kind.as_str())
+    }
+}
+
+/// How long an unknown app's answer is kept before Steam is asked again.
+const INFO_SECS: i64 = 30 * 24 * 3600;
+
+/// Name and type of each app id not known yet, from the store's public app details.
+pub async fn app_info(ids: Vec<u32>, known: &HashMap<u32, AppInfo>) -> HashMap<u32, AppInfo> {
+    use futures::StreamExt;
+    let t = crate::model::now();
+    let todo: Vec<u32> = ids.into_iter().filter(|id| known.get(id).is_none_or(|i| i.kind.is_empty() && t - i.at > INFO_SECS)).collect();
+    let http = reqwest::Client::builder().timeout(std::time::Duration::from_secs(15)).user_agent("Mantel/0.1 (game launcher)").build().unwrap_or_default();
+    futures::stream::iter(todo)
+        .map(|id| {
+            let http = http.clone();
+            async move {
+                let v: serde_json::Value = http
+                    .get("https://store.steampowered.com/api/appdetails")
+                    .query(&[("appids", id.to_string()), ("filters", "basic".into())])
+                    .send()
+                    .await
+                    .ok()?
+                    .json()
+                    .await
+                    .ok()?;
+                let data = v.get(id.to_string()).and_then(|x| x.get("data"));
+                let text = |k: &str| data.and_then(|d| d.get(k)).and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+                Some((id, AppInfo { name: text("name"), kind: text("type"), at: t }))
+            }
+        })
+        .buffer_unordered(2)
+        .filter_map(|x| async { x })
+        .collect()
+        .await
+}
+
+/// Takes out of the log what isn't play: sittings too long to be real, and apps that aren't
+/// games. Whether anything went.
+pub fn prune(log: &mut Vec<Session>, apps: &HashMap<u32, AppInfo>) -> bool {
+    let before = log.len();
+    log.retain(|s| {
+        let app = s.game.strip_prefix("steam:").and_then(|id| id.parse::<u32>().ok()).and_then(|id| apps.get(&id));
+        s.end - s.start <= MAX_SECS && app.is_none_or(AppInfo::is_game)
+    });
+    log.len() != before
+}
+
+/// App ids of the Steam games in sessions.
+pub fn steam_ids(sessions: &[Session]) -> Vec<u32> {
+    let mut ids: Vec<u32> = sessions.iter().filter_map(|s| s.game.strip_prefix("steam:")?.parse().ok()).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
 
 /// Every finished session in Steam's logs, oldest first, as `steam:<appid>` games.
 pub fn read(logs: &Path) -> Vec<Session> {
@@ -36,14 +109,18 @@ fn parse(text: &str, to_unix: impl Fn(&str) -> Option<i64>) -> Vec<Session> {
             let Some((id, what)) = tail.split_once(' ') else { continue };
             if what.starts_with("adding PID") {
                 if let Ok(id) = id.parse::<u32>() {
-                    open.entry(id).or_insert(at);
+                    let start = open.entry(id).or_insert(at);
+                    // A start with no end for longer than a sitting: Steam missed that end.
+                    if at - *start > MAX_SECS {
+                        *start = at;
+                    }
                 }
             }
         } else if let Some(tail) = event.strip_prefix("Remove ") {
             // "Remove 1091500 from running list"
             let Some(id) = tail.strip_suffix(" from running list").and_then(|s| s.trim().parse::<u32>().ok()) else { continue };
             if let Some(start) = open.remove(&id) {
-                if at - start >= MIN_SECS {
+                if at - start >= MIN_SECS && at - start <= MAX_SECS {
                     out.push(Session { game: format!("steam:{id}"), start, end: at });
                 }
             }
@@ -153,6 +230,21 @@ mod tests {
         assert_eq!(log.len(), 2);
         assert!(log[0].start <= log[1].start);
         assert_eq!(merge(&mut log, parse(LOG, utc)), 0);
+    }
+
+    #[test]
+    fn leaves_out_what_isnt_play() {
+        let mut log = vec![
+            Session { game: "steam:1".into(), start: 0, end: 3600 },
+            Session { game: "steam:2".into(), start: 0, end: 3600 },
+            Session { game: "steam:1".into(), start: 0, end: 30 * 3600 },
+            Session { game: "xbox:x".into(), start: 0, end: 600 },
+        ];
+        let apps = HashMap::from([(1, AppInfo { name: "Game".into(), kind: "game".into(), at: 0 }), (2, AppInfo { name: "Wallpaper".into(), kind: "application".into(), at: 0 })]);
+        assert!(prune(&mut log, &apps));
+        assert_eq!(log.iter().map(|s| s.game.as_str()).collect::<Vec<_>>(), ["steam:1", "xbox:x"]);
+        assert!(!prune(&mut log, &apps));
+        assert_eq!(steam_ids(&log), [1]);
     }
 
     #[test]

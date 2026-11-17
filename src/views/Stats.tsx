@@ -86,6 +86,7 @@ export function Stats({ active }: { active: boolean }) {
   const games = useStore((s) => s.games);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [unlocks, setUnlocks] = useState<UnlockTimes[]>([]);
+  const [names, setNames] = useState<Record<string, string>>({});
   const [focus, setFocus] = useState(() => midnight(Date.now()));
 
   // Read again whenever the tab comes up: a game may have ended since.
@@ -93,6 +94,7 @@ export function Stats({ active }: { active: boolean }) {
     if (!active) return;
     api.getSessions().then(setSessions, () => {});
     api.achievementTimes().then(setUnlocks, () => {});
+    api.sessionNames().then(setNames, () => {});
   }, [active, games]);
 
   const days = useMemo(() => byDay(sessions), [sessions]);
@@ -186,7 +188,8 @@ export function Stats({ active }: { active: boolean }) {
 
   const focusStat = days.get(keyOf(focus));
   const focusUnlocks = achievements.get(keyOf(focus)) ?? 0;
-  const nameOf = (id: string) => gameById(id)?.name ?? id;
+  // A Steam game no longer installed is named by the store; one it doesn't know, by its number.
+  const nameOf = (id: string) => gameById(id)?.name ?? names[id] ?? (id.startsWith("steam:") ? t("Steam game {id}", { id: id.slice(6) }) : id);
   const colorOf = (id: string) => {
     const n = chart.colored.indexOf(id);
     return n >= 0 ? COLORS[n] : OTHER;

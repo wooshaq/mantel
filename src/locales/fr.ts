@@ -631,4 +631,5 @@ export const fr: Catalog = {
   "Or paste the page's address yourself": "Ou collez vous-même l’adresse de la page",
   "Search HowLongToBeat": "Chercher sur HowLongToBeat",
   "HowLongToBeat is already open": "HowLongToBeat est déjà ouvert",
+  "Steam game {id}": "Jeu Steam {id}",
 };

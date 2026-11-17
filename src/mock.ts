@@ -317,7 +317,10 @@ export const mockApi: Api = {
     return sampleSessions();
   },
   async importSteamHistory() {
-    return 0;
+    return false;
+  },
+  async sessionNames() {
+    return {};
   },
   async hltbPick(id) {
     await wait(1500);

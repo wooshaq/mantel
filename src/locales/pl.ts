@@ -585,4 +585,5 @@ export const pl: Catalog = {
   "Or paste the page's address yourself": "Albo wklej adres strony sam",
   "Search HowLongToBeat": "Wyszukaj na HowLongToBeat",
   "HowLongToBeat is already open": "HowLongToBeat jest już otwarte",
+  "Steam game {id}": "Gra Steam {id}",
 };
