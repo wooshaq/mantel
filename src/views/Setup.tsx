@@ -5,7 +5,6 @@ import { api } from "../api";
 import { AccountFlow, steamCopy, xboxCopy } from "../components/AccountFlow";
 import { Glyph, SourceIcon } from "../components/Glyph";
 import { useHints, type Hint } from "../components/Hints";
-import { homeAppCopy, useHomeApp } from "../components/HomeApp";
 import { Img } from "../components/Img";
 import { errorText, LANGUAGES, t, tIn, windowsLanguage } from "../i18n";
 import { Layer, rumble, useInput } from "../input";
@@ -107,7 +106,6 @@ function SetupScreen({ step }: { step: number }) {
   const games = useStore((s) => s.games);
   const scanning = useStore((s) => s.scanning);
   const accounts = useStore((s) => s.accounts);
-  const home = useHomeApp();
   const [autostart, setAutostart] = useState<boolean | null>(null);
   const [flow, setFlow] = useState<"steam" | "xbox" | null>(null);
   /** The step is clearing before a new language remounts everything. */
@@ -141,7 +139,6 @@ function SetupScreen({ step }: { step: number }) {
   const next = () => go(step + 1);
   const steam = accounts?.steam;
   const xboxTag = accounts?.xboxGamertag ?? null;
-  const mode = home.mode;
 
   // ---- What can be chosen on this step, in reading order.
   let choices: Choice[] = [];
@@ -168,17 +165,8 @@ function SetupScreen({ step }: { step: number }) {
       { id: "xbox", run: () => setFlow("xbox") },
       { id: "next", run: next },
     ];
-  } else if (id === "start" && mode?.supported) {
-    choices = mode.home
-      ? [{ id: "next", run: next }]
-      : [
-          { id: "make", run: () => void home.make() },
-          ...(home.error && !mode.developerMode ? [{ id: "developer", run: home.openDeveloperSettings }] : []),
-          { id: "skip", run: next },
-        ];
   } else if (id === "start") {
-    choices = mode
-      ? [
+    choices = [
           {
             id: "autostart",
             run: () =>
@@ -191,8 +179,7 @@ function SetupScreen({ step }: { step: number }) {
               ),
           },
           { id: "skip", run: next },
-        ]
-      : [];
+        ];
   } else {
     choices = [
       {
@@ -210,7 +197,7 @@ function SetupScreen({ step }: { step: number }) {
   }
 
   const i = Math.min(index, Math.max(0, choices.length - 1));
-  const busy = home.busy || leaving || launching;
+  const busy = leaving || launching;
   const activate = (c: Choice | undefined) => {
     if (busy || !c) return;
     if (!c.quiet) sound.select();
@@ -362,62 +349,7 @@ function SetupScreen({ step }: { step: number }) {
         </motion.div>
       </>
     );
-  } else if (id === "start" && mode?.supported) {
-    const copy = homeAppCopy(mode);
-    content = (
-      <>
-        <motion.div className="eyebrow" variants={piece}>
-          {t("Xbox mode")}
-        </motion.div>
-        <motion.h1 className="setup-title" variants={piece}>
-          {t("Start in Mantel")}
-        </motion.h1>
-        <motion.p className="setup-intro" variants={piece}>
-          {copy.intro}
-        </motion.p>
-        {/* Once it's done, the how-to fades away; nothing above it moves. */}
-        <AnimatePresence>
-          {copy.steps.length > 0 && (
-            <motion.ol key="howto" className="setup-howto" variants={piece} exit="exit">
-              {copy.steps.map((s) => (
-                <li key={s}>{s}</li>
-              ))}
-            </motion.ol>
-          )}
-        </AnimatePresence>
-        <motion.div className={`setup-status ${mode.home ? "is-ok" : ""}`} variants={piece}>
-          <motion.span key={copy.status} initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { duration: 0.35 } }}>
-            {copy.status}
-          </motion.span>
-        </motion.div>
-        {!mode.home && (
-          <motion.p className="setup-aside" variants={piece}>
-            {copy.note}
-          </motion.p>
-        )}
-        <AnimatePresence>
-          {home.error && (
-            <motion.div className="keyflow-error setup-error" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              {home.error}
-            </motion.div>
-          )}
-        </AnimatePresence>
-        {/* A new set of actions, such as after the home app is done, comes in like a step's. */}
-        <motion.div key={choices.map((c) => c.id).join()} className="setup-actions" variants={groupMotion} initial="enter" animate="show">
-          {mode.home ? (
-            action("next", t("Continue"))
-          ) : (
-            <>
-              {action("make", home.busy ? copy.busy : copy.action, home.busy)}
-              {choices.some((c) => c.id === "developer") && action("developer", t("Open Developer settings"))}
-              {action("skip", t("Not now"))}
-            </>
-          )}
-        </motion.div>
-      </>
-    );
   } else if (id === "start") {
-    // Without Xbox mode there's no home app to be: starting with Windows comes closest.
     content = (
       <>
         <motion.div className="eyebrow" variants={piece}>
@@ -435,12 +367,8 @@ function SetupScreen({ step }: { step: number }) {
           </motion.div>
         )}
         <motion.div className="setup-actions" variants={groupMotion}>
-          {mode && (
-            <>
-              {action("autostart", t("Start with Windows"))}
-              {action("skip", autostart ? t("Continue") : t("Not now"))}
-            </>
-          )}
+          {action("autostart", t("Start with Windows"))}
+          {action("skip", autostart ? t("Continue") : t("Not now"))}
         </motion.div>
       </>
     );

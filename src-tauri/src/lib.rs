@@ -1055,23 +1055,6 @@ fn power_action(app: AppHandle, action: String) -> Result<(), String> {
     system::action(&app, &action)
 }
 
-/// Setup's and Settings' "Make Mantel the home app". Needs Developer Mode turned on by the player
-/// in Windows Settings: Mantel never turns it on itself.
-#[tauri::command]
-async fn make_home_app(app: AppHandle) -> Result<fse::Mode, String> {
-    let dir = app.path().resource_dir().map_err(|e| e.to_string())?;
-    let version = app.package_info().version.to_string();
-    // Windows shows its prompt over this window rather than behind it.
-    #[cfg(windows)]
-    let window = app.get_webview_window("main").and_then(|w| w.hwnd().ok()).map_or(0, |h| h.0 as isize);
-    #[cfg(not(windows))]
-    let window = 0;
-    let made = tauri::async_runtime::spawn_blocking(move || fse::make_home(window, &dir, &version)).await.map_err(|e| e.to_string())?;
-    // After Windows' prompt, yes or no, Mantel is where the player was.
-    launcher::to_front(&app);
-    made
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let context = tauri::generate_context!();
@@ -1146,7 +1129,6 @@ pub fn run() {
             set_muted,
             set_brightness,
             full_screen_mode,
-            make_home_app,
             client_log,
             accounts_status,
             steam_sign_in,

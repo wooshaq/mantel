@@ -234,7 +234,7 @@ let steamKey = "";
 let xboxTag: string | null = null;
 let autostart = false;
 /** As on the Ally: Xbox mode, Developer Mode off, so setup has the home app to offer. */
-const fullScreen = { supported: true, active: false, canSwitch: false, offered: false, home: false, developerMode: false };
+const fullScreen = { supported: true, active: false, canSwitch: false };
 const listeners = new Map<GameEvent, Set<(p: unknown) => void>>();
 const emit = (e: GameEvent, payload: unknown) => listeners.get(e)?.forEach((cb) => cb(payload));
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -502,12 +502,6 @@ export const mockApi: Api = {
     console.info("[mock] power action", action);
   },
   async fullScreenMode() {
-    return { ...fullScreen };
-  },
-  async makeHomeApp() {
-    // Stands in for Windows' permission prompt.
-    await wait(1800);
-    Object.assign(fullScreen, { developerMode: true, offered: true, home: true });
     return { ...fullScreen };
   },
   async getAutostart() {

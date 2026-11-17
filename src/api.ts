@@ -64,12 +64,9 @@ export interface Api {
   setVolume(level: number): Promise<void>;
   setMuted(muted: boolean): Promise<void>;
   setBrightness(level: number): Promise<void>;
-  powerAction(action: "shutdown" | "restart" | "desktop" | "fullscreen" | "home-app-settings" | "developer-settings" | "quit"): Promise<void>;
+  powerAction(action: "shutdown" | "restart" | "desktop" | "fullscreen" | "quit"): Promise<void>;
   /** Windows' full screen experience (Xbox mode): whether it's on and whether we can toggle it. */
   fullScreenMode(): Promise<FullScreenMode>;
-  /** Makes Mantel the home app of Xbox mode, turning on Developer Mode first if needed: Windows
-   *  then asks the player for permission. Rejects with a fixed English reason. */
-  makeHomeApp(): Promise<FullScreenMode>;
   getAutostart(): Promise<boolean>;
   setAutostart(on: boolean): Promise<void>;
   on(event: GameEvent, cb: (payload: unknown) => void): () => void;
@@ -104,12 +101,6 @@ export interface FullScreenMode {
   supported: boolean;
   active: boolean;
   canSwitch: boolean;
-  /** Windows lists Mantel among home apps: its package is registered, which needs Developer Mode. */
-  offered: boolean;
-  /** Mantel is the home app. */
-  home: boolean;
-  /** Windows' Developer Mode, without which it won't take Mantel as the home app. */
-  developerMode: boolean;
 }
 
 
@@ -153,7 +144,6 @@ const tauriApi: Api = {
   setBrightness: (level) => call("set_brightness", { level }),
   powerAction: (action) => call("power_action", { action }),
   fullScreenMode: () => call("full_screen_mode"),
-  makeHomeApp: () => call("make_home_app"),
   async getAutostart() {
     const { isEnabled } = await import("@tauri-apps/plugin-autostart");
     return isEnabled();

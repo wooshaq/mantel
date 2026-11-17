@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type FullScreenMode } from "../api";
+import { api } from "../api";
 import { SourceIcon } from "../components/Glyph";
 import { useHints } from "../components/Hints";
 import { AddGame } from "../components/AddGame";
 import { KeyFlow } from "../components/KeyFlow";
 import { AccountFlow, steamCopy, xboxCopy } from "../components/AccountFlow";
-import { HomeAppFlow } from "../components/HomeApp";
 import { useScrollFocus } from "../hooks";
 import { Layer, useInput } from "../input";
 import { errorText, LANGUAGES, t } from "../i18n";
@@ -76,7 +75,6 @@ export function Settings({ active }: { active: boolean }) {
   const [autostart, setAutostart] = useState(false);
   const [flow, setFlow] = useState<Flow>(null);
   const [accounts, setAccounts] = useState<AccountsStatus | null>(null);
-  const [mode, setMode] = useState<FullScreenMode | null>(null);
   const list = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -91,11 +89,6 @@ export function Settings({ active }: { active: boolean }) {
     setFlow(signInAsk);
     useStore.setState({ signInAsk: null });
   }, [signInAsk]);
-
-  // Again on every visit: the home app is picked in Windows' own Settings.
-  useEffect(() => {
-    if (active) api.fullScreenMode().then(setMode).catch(() => {});
-  }, [active]);
 
   useEffect(() => {
     list.current?.scrollTo({ top: 0 });
@@ -255,22 +248,6 @@ export function Settings({ active }: { active: boolean }) {
       sub: t("Language, accounts and how the handheld starts, step by step"),
       run: openSetup,
     },
-    ...(mode?.supported
-      ? ([
-          { kind: "group", label: t("Xbox mode") },
-          {
-            kind: "button",
-            id: "home-app",
-            label: t("Home app"),
-            sub: mode.home
-              ? t("Xbox mode starts in Mantel, and Home in Game Bar comes back to it")
-              : t("Start Xbox mode in Mantel, and come back to it with Home in Game Bar"),
-            value: mode.home ? "Mantel" : t("Set up"),
-            // Once it's Mantel, Windows' own page is where to pick another app.
-            run: () => (mode.home ? void api.powerAction("home-app-settings").catch((e) => toast(errorText(e), "warn")) : setFlow("home")),
-          },
-        ] as Row[])
-      : []),
   ];
 
   const rows = { library, accounts: accountRows, interface: interfaceRows, system }[category];
@@ -365,14 +342,6 @@ export function Settings({ active }: { active: boolean }) {
         </div>
         {flow === "add" && <AddGame onClose={() => setFlow(null)} />}
         {(flow === "steam" || flow === "xbox") && <AccountFlow copy={(flow === "steam" ? steamCopy : xboxCopy)(accounts)} onChange={setAccounts} onClose={() => setFlow(null)} />}
-        {flow === "home" && (
-          <HomeAppFlow
-            onClose={() => {
-              setFlow(null);
-              api.fullScreenMode().then(setMode).catch(() => {});
-            }}
-          />
-        )}
         {flow === "sgdb" && (
           <KeyFlow
             service="SteamGridDB"
