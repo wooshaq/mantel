@@ -234,7 +234,7 @@ export function Stats({ active }: { active: boolean }) {
           </div>
           <div className="cal-grid">
             {calendar.weeks.map((week, w) => (
-              <div key={w} className={`cal-week ${week.some((d) => new Date(d).getMonth() === month && new Date(d).getFullYear() === year) ? "in-month" : ""}`}>
+              <div key={w} className="cal-week">
                 {week.map((d) => {
                   const key = keyOf(d);
                   const out = new Date(d).getFullYear() !== year || d > today;
