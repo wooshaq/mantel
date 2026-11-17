@@ -202,7 +202,7 @@ export function Settings({ active }: { active: boolean }) {
       kind: "toggle",
       id: "tray",
       label: t("Icon in the notification area"),
-      sub: t("Minimizing or closing hides Mantel next to the clock; the icon brings it back"),
+      sub: t("Minimizing, closing or Esc pressed twice hides Mantel next to the clock; the icon brings it back"),
       value: settings.tray,
       set: (v) => patch({ tray: v }),
     },

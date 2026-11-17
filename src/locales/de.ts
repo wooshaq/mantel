@@ -569,4 +569,5 @@ export const de: Catalog = {
   "Mantel doesn't know your Steam profile yet: add it in Settings → Library": "Mantel kennt dein Steam-Profil noch nicht: Füge es unter Einstellungen → Bibliothek hinzu",
   "Turn HDR off": "HDR ausschalten",
   "Turn HDR on": "HDR einschalten",
+  "Minimizing, closing or Esc pressed twice hides Mantel next to the clock; the icon brings it back": "Minimieren, Schließen oder zweimal Esc versteckt Mantel neben der Uhr; das Symbol holt es zurück",
 };

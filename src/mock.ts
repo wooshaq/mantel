@@ -311,6 +311,7 @@ export const mockApi: Api = {
     return { ...steamProfile };
   },
   async setTray() {},
+  async hideWindow() {},
   async setFlag(id, flag, value) {
     games = games.map((g) => (g.id === id ? { ...g, [flag]: value } : g));
   },

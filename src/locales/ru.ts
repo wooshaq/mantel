@@ -604,4 +604,5 @@ export const ru: Catalog = {
   "Mantel doesn't know your Steam profile yet: add it in Settings → Library": "Mantel ещё не знает ваш профиль Steam: добавьте его в Настройки → Библиотека",
   "Turn HDR off": "Выключить HDR",
   "Turn HDR on": "Включить HDR",
+  "Minimizing, closing or Esc pressed twice hides Mantel next to the clock; the icon brings it back": "Сворачивание, закрытие или двойное нажатие Esc прячет Mantel возле часов; значок возвращает его",
 };

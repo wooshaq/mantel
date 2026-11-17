@@ -194,7 +194,21 @@ const KEYS: Record<string, Action> = {
 // Keys that still navigate while a text field is focused.
 const TEXT_SAFE = new Set(["ArrowUp", "ArrowDown", "Escape", "Enter"]);
 
+/** Two presses of Esc this close together hide Mantel: into the tray when it's on. */
+const DOUBLE_ESC_MS = 450;
+let lastEscape = 0;
+
 function onKey(e: KeyboardEvent) {
+  if (e.key === "Escape" && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const now = performance.now();
+    if (now - lastEscape < DOUBLE_ESC_MS) {
+      lastEscape = 0;
+      e.preventDefault();
+      void import("./api").then(({ api }) => api.hideWindow()).catch(() => {});
+      return;
+    }
+    lastEscape = now;
+  }
   const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
   if (typing && !TEXT_SAFE.has(e.key)) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;

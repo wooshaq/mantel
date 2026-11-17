@@ -915,6 +915,12 @@ async fn set_steam_id(state: State<'_, AppState>, input: String) -> Result<Optio
     steam_profile(state).await
 }
 
+/// Hides Mantel: into the tray when it's on, else minimized. Esc twice on a keyboard.
+#[tauri::command]
+fn hide_window(app: AppHandle) {
+    tray::step_aside(&app);
+}
+
 /// The notification-area icon, on or off, with its menu in the interface's language.
 #[tauri::command]
 fn set_tray(app: AppHandle, on: bool, show: String, quit: String) -> Result<(), String> {
@@ -1043,6 +1049,7 @@ pub fn run() {
             steam_profile,
             set_steam_id,
             set_tray,
+            hide_window,
             set_flag,
             get_settings,
             save_settings,

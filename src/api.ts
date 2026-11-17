@@ -40,6 +40,8 @@ export interface Api {
   setSteamId(input: string): Promise<SteamProfile | null>;
   /** The notification-area icon, with its menu labels. */
   setTray(on: boolean, show: string, quit: string): Promise<void>;
+  /** Hides Mantel: into the tray when it's on, else minimized. */
+  hideWindow(): Promise<void>;
   setFlag(id: string, flag: "favorite" | "hidden" | "hdr", value: boolean): Promise<void>;
   getSettings(): Promise<Settings>;
   saveSettings(settings: Settings): Promise<void>;
@@ -124,6 +126,7 @@ const tauriApi: Api = {
   steamProfile: () => call("steam_profile"),
   setSteamId: (input) => call("set_steam_id", { input }),
   setTray: (on, show, quit) => call("set_tray", { on, show, quit }),
+  hideWindow: () => call("hide_window"),
   setFlag: (id, flag, value) => call("set_flag", { id, flag, value }),
   getSettings: () => call("get_settings"),
   saveSettings: (settings) => call("save_settings", { settings }),

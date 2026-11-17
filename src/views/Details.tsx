@@ -247,6 +247,8 @@ export function Details() {
   const [viewer, setViewer] = useState<number | null>(null);
   const [achievements, setAchievements] = useState(false);
   const [achList, setAchList] = useState<Achievement[] | null>(null);
+  /** The list was opened from Home: closing it goes straight back there. */
+  const [achFromHome, setAchFromHome] = useState(false);
   const [achError, setAchError] = useState<string | null>(null);
   const [pickingArt, setPickingArt] = useState(false);
   const [armed, setArmed] = useState(false);
@@ -282,8 +284,10 @@ export function Details() {
     setPickingEdition(false);
     if (!detailsId) return;
     // Home's trophy button opens the page straight on the list.
+    setAchFromHome(false);
     if (useStore.getState().achievementsAsk === detailsId) {
       setAchievements(true);
+      setAchFromHome(true);
       useStore.setState({ achievementsAsk: null });
     }
     let live = true;
@@ -600,7 +604,7 @@ export function Details() {
 
       <AnimatePresence>{pickingArt && <ArtPicker game={game} onClose={() => setPickingArt(false)} />}</AnimatePresence>
 
-      <AnimatePresence>{achievements && <AchievementList game={game} list={achList} error={achError} onClose={() => setAchievements(false)} />}</AnimatePresence>
+      <AnimatePresence>{achievements && <AchievementList game={game} list={achList} error={achError} onClose={() => (achFromHome ? useStore.setState({ detailsId: null }) : setAchievements(false))} />}</AnimatePresence>
 
       <AnimatePresence>
         {viewer !== null && viewing && (
