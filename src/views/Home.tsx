@@ -57,6 +57,15 @@ function Hero({ game, running, zone, btn, armed, onPress }: { game: Game; runnin
   const install = useStore((s) => s.installs[game.id]);
   const closing = useStore((s) => s.closing.includes(game.id));
   const buttons = buttonsFor(game, running);
+  // What a round button is called, shown as it unfolds.
+  const roundLabel = (b: string): string | null => {
+    if (b === "quit") return armed || closing ? null : t("Close game");
+    if (b === "ach") return t("Achievements");
+    if (b === "details") return t("Details");
+    if (b === "fav") return t(game.favorite ? "Unfavorite" : "Favorite");
+    if (b === "hdr") return t(nextHdrLabel(game));
+    return null;
+  };
   return (
     <motion.section className="hero" variants={heroVariants} initial="enter" animate="show" exit="exit">
       <motion.div className="hero-eyebrow" variants={item}>
@@ -111,6 +120,12 @@ function Hero({ game, running, zone, btn, armed, onPress }: { game: Game; runnin
               <span className="hdr">{game.rtxHdr ? "RTX" : "HDR"}</span>
             ) : (
               <svg viewBox="0 0 24 24" className="star"><path d="M12 3.5l2.5 5.4 5.9.6-4.4 4 1.3 5.8L12 16.4l-5.3 2.9L8 13.5l-4.4-4 5.9-.6z" /></svg>
+            )}
+            {/* Round buttons unfold their name when focused, as on a game's page. */}
+            {roundLabel(b) && (
+              <span className="btn-label">
+                <span>{roundLabel(b)}</span>
+              </span>
             )}
           </button>
         ))}
