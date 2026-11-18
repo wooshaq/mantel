@@ -588,6 +588,8 @@ export async function closeRunning(id: string) {
 
 export function wireEvents() {
   api.appInFront().then((v) => void (appInFront = v), () => {});
+  // Started out of sight, with Windows: that happened before the listeners below.
+  api.windowAway().then((away) => void (away && set({ away })), () => {});
   const offs = [
     api.on("game-started", (id) => {
       set((s) => ({

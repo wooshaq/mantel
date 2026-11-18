@@ -42,6 +42,8 @@ export interface Api {
   setTray(on: boolean, show: string, quit: string): Promise<void>;
   /** Hides Mantel: into the tray when it's on, else minimized. */
   hideWindow(): Promise<void>;
+  /** Whether Mantel is out of sight now, as after a start with Windows. */
+  windowAway(): Promise<boolean>;
   /** Every session played, oldest first. */
   getSessions(): Promise<Session[]>;
   /** Adds sessions from the Steam client's own log and drops what isn't play; whether it changed. */
@@ -143,6 +145,7 @@ const tauriApi: Api = {
   setSteamId: (input) => call("set_steam_id", { input }),
   setTray: (on, show, quit) => call("set_tray", { on, show, quit }),
   hideWindow: () => call("hide_window"),
+  windowAway: () => call("window_away"),
   getSessions: () => call("get_sessions"),
   importSteamHistory: () => call("import_steam_history"),
   sessionNames: () => call("session_names"),

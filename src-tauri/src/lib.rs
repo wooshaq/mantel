@@ -927,6 +927,15 @@ async fn set_steam_id(state: State<'_, AppState>, input: String) -> Result<Optio
     steam_profile(state).await
 }
 
+/// What the start with Windows passes, so Mantel starts out of the way.
+const AUTOSTART_ARG: &str = "--autostart";
+
+/// Whether Mantel is out of sight: in the tray or minimized.
+#[tauri::command]
+fn window_away() -> bool {
+    tray::is_away()
+}
+
 /// Hides Mantel: into the tray when it's on, else minimized. Esc twice on a keyboard.
 #[tauri::command]
 fn hide_window(app: AppHandle) {
@@ -1159,7 +1168,7 @@ pub fn run() {
         // Must come first: a second launch (e.g. from autostart) just refocuses us.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| launcher::to_front(app)))
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec![AUTOSTART_ARG])))
         .setup(move |app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -1168,9 +1177,13 @@ pub fn run() {
             if moved.data {
                 log::info(&format!("moved data from Nova (start with Windows: {})", moved.autostart));
             }
-            if moved.autostart {
+            {
                 use tauri_plugin_autostart::ManagerExt;
-                let _ = app.autolaunch().enable();
+                // Enabling again also rewrites an entry an older version left without the flag
+                // that says it was Windows that started Mantel.
+                if moved.autostart || app.autolaunch().is_enabled().unwrap_or(false) {
+                    let _ = app.autolaunch().enable();
+                }
             }
             let state = AppState::load(dir);
             let mut dirs = state.cache.lock().unwrap().asset_dirs.clone();
@@ -1193,6 +1206,9 @@ pub fn run() {
             launcher::spawn_tracker(app.handle().clone());
             launcher::watch_front(app.handle());
             tray::init(app.handle());
+            let with_windows = std::env::args().any(|a| a == AUTOSTART_ARG);
+            log::info(&format!("started {}", if with_windows { "with Windows" } else { "by the player" }));
+            tray::start(app.handle(), with_windows);
             // RTX HDR a crash or power cut left set in the driver's profiles goes back off.
             let dir = app.state::<AppState>().dir().to_path_buf();
             std::thread::spawn(move || rtx_hdr::init(&dir));
@@ -1216,6 +1232,7 @@ pub fn run() {
             set_hltb,
             refresh_hltb,
             hide_window,
+            window_away,
             set_flag,
             get_settings,
             save_settings,

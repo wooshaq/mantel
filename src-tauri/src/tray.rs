@@ -58,7 +58,34 @@ fn to_tray(w: &tauri::WebviewWindow) {
 /// Tells the interface whether Mantel is out of sight, in the tray or minimized: nothing like
 /// a trailer should play then. WebView2 doesn't notice a hidden window by itself.
 pub fn away(w: &tauri::WebviewWindow, gone: bool) {
+    AWAY.store(gone, Ordering::Relaxed);
     let _ = w.emit("window-away", gone);
+}
+
+/// Whether Mantel is out of sight now; the interface asks at its start, as a start with Windows
+/// happens before it listens.
+static AWAY: AtomicBool = AtomicBool::new(false);
+
+pub fn is_away() -> bool {
+    AWAY.load(Ordering::Relaxed)
+}
+
+/// A start with Windows: out of the way, into the tray when it's on, else minimized, without
+/// showing full screen first. Any other start shows the window.
+pub fn start(app: &AppHandle, with_windows: bool) {
+    let Some(w) = app.get_webview_window("main") else { return };
+    if !with_windows {
+        let _ = w.show();
+        return;
+    }
+    if ON.load(Ordering::Relaxed) {
+        let _ = w.set_skip_taskbar(true);
+        away(&w, true);
+    } else {
+        let _ = w.show();
+        let _ = w.minimize();
+        away(&w, true);
+    }
 }
 
 /// Out of the way while a game runs: into the tray when it's on, else minimized.

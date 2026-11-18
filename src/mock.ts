@@ -347,6 +347,9 @@ export const mockApi: Api = {
     return false;
   },
   async hideWindow() {},
+  async windowAway() {
+    return false;
+  },
   async setFlag(id, flag, value) {
     games = games.map((g) => (g.id === id ? { ...g, [flag]: value } : g));
   },
