@@ -41,7 +41,8 @@ struct Pending {
 
 struct Session {
     since: Instant,
-    misses: u32,
+    /// Since when none of its processes has been seen.
+    gone: Option<Instant>,
     from_mantel: bool,
 }
 
@@ -99,9 +100,50 @@ fn known_pids(id: &str) -> Option<HashSet<u32>> {
 /// Launchers like Steam may update or show a login before the game appears.
 const DETECT_WINDOW: Duration = Duration::from_secs(150);
 const POLL: Duration = Duration::from_secs(3);
-/// Polls a game may be missing before its session ends; covers games that restart
-/// themselves through anti-cheat or a launcher stub.
-const GRACE_POLLS: u32 = 3;
+/// How long a game may be gone before its session ends; covers games that restart themselves
+/// through anti-cheat or a launcher stub, which start the next process within a second.
+const GRACE: Duration = Duration::from_millis(1000);
+/// How often a game that has just gone is looked for again.
+const RECHECK: Duration = Duration::from_millis(500);
+
+/// Wakes the tracker before its next poll: a game's process ended.
+static WAKE: (Mutex<bool>, std::sync::Condvar) = (Mutex::new(false), std::sync::Condvar::new());
+
+fn wake() {
+    *WAKE.0.lock().unwrap() = true;
+    WAKE.1.notify_one();
+}
+
+/// Sleeps until the next poll, or less when a game's process ends first.
+fn nap(d: Duration) {
+    let guard = WAKE.0.lock().unwrap();
+    let (mut woken, _) = WAKE.1.wait_timeout_while(guard, d, |w| !*w).unwrap();
+    *woken = false;
+}
+
+/// Has Windows tell the tracker the moment the last of these processes ends, so the player
+/// isn't kept waiting for the next poll after leaving a game.
+#[cfg(windows)]
+fn watch_exit(pids: Vec<u32>) {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, WaitForMultipleObjects, INFINITE, PROCESS_SYNCHRONIZE};
+    std::thread::spawn(move || {
+        let handles: Vec<_> = pids.iter().take(64).map(|&pid| unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) }).filter(|h| !h.is_null()).collect();
+        if handles.is_empty() {
+            return;
+        }
+        unsafe {
+            WaitForMultipleObjects(handles.len() as u32, handles.as_ptr(), 1, INFINITE);
+            for h in handles {
+                CloseHandle(h);
+            }
+        }
+        wake();
+    });
+}
+
+#[cfg(not(windows))]
+fn watch_exit(_pids: Vec<u32>) {}
 
 pub fn launch(app: &AppHandle, game: &Game) -> Result<(), String> {
     if !game.installed {
@@ -197,7 +239,8 @@ fn prepare(app: &AppHandle, game: &Game) {
 }
 
 /// Undoes what [`prepare`] did, once the game is over or never started.
-fn wind_down(id: &str) {
+/// Puts back what [`prepare`] changed for a game. Whether it closed Big Picture.
+fn wind_down(id: &str) -> bool {
     if let Some(changes) = RTX_HDR.lock().unwrap().remove(id) {
         crate::rtx_hdr::restore(id, &changes);
         crate::log::info(&format!("rtx hdr back off after {id}"));
@@ -206,11 +249,51 @@ fn wind_down(id: &str) {
         crate::hdr::restore(&switched);
         crate::log::info(&format!("hdr back off after {id}"));
     }
-    if BIG_PICTURE.lock().unwrap().remove(id) {
-        if let Err(e) = open_uri("steam://close/bigpicture") {
-            crate::log::warn(&format!("big picture: {e}"));
-        }
+    let big_picture = BIG_PICTURE.lock().unwrap().remove(id);
+    if big_picture {
+        close_big_picture();
     }
+    big_picture
+}
+
+fn close_big_picture() {
+    if let Err(e) = open_uri("steam://close/bigpicture") {
+        crate::log::warn(&format!("big picture: {e}"));
+    }
+}
+
+/// How long Mantel keeps asking Big Picture to close after a game: Steam can still be busy
+/// with the game for a few seconds, syncing its saves, and shows Big Picture in front meanwhile.
+const BIG_PICTURE_CLOSE: Duration = Duration::from_secs(15);
+
+/// Asked again at least this long, in case its window isn't found by its title.
+const BIG_PICTURE_RETRY: Duration = Duration::from_secs(7);
+
+/// Waits for Big Picture to go after a game, asking again every few seconds.
+fn wait_big_picture_closed() {
+    let start = Instant::now();
+    let mut asked = Instant::now();
+    while start.elapsed() < BIG_PICTURE_RETRY || (start.elapsed() < BIG_PICTURE_CLOSE && big_picture_open()) {
+        if asked.elapsed() >= Duration::from_secs(3) {
+            close_big_picture();
+            asked = Instant::now();
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+/// Whether Steam's Big Picture window is up.
+#[cfg(windows)]
+fn big_picture_open() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{FindWindowW, IsWindowVisible};
+    let title: Vec<u16> = "Steam Big Picture Mode".encode_utf16().chain(Some(0)).collect();
+    let w = unsafe { FindWindowW(std::ptr::null(), title.as_ptr()) };
+    !w.is_null() && unsafe { IsWindowVisible(w) } != 0
+}
+
+#[cfg(not(windows))]
+fn big_picture_open() -> bool {
+    false
 }
 
 /// A launch from Mantel. Only one waits for its process at a time, so an earlier launch that
@@ -507,8 +590,10 @@ pub fn spawn_tracker(app: AppHandle) {
         let mut sys = System::new();
         let mut sessions: HashMap<String, Session> = HashMap::new();
         let mut claims: HashMap<u32, Claim> = HashMap::new();
+        // The processes each running game is watched for.
+        let mut watched: HashMap<String, HashSet<u32>> = HashMap::new();
         loop {
-            std::thread::sleep(POLL);
+            nap(if sessions.values().any(|s| s.gone.is_some()) { RECHECK } else { POLL });
             let targets = targets(&app);
             refresh(&mut sys);
             check_front(&app);
@@ -553,22 +638,31 @@ pub fn spawn_tracker(app: AppHandle) {
             for id in sessions.keys() {
                 pids.entry(id.clone()).or_default();
             }
+            // Games, not apps: an app ends when its window closes, which only the poll sees.
+            for id in &alive {
+                let Some(now) = pids.get(id) else { continue };
+                if !now.is_empty() && watched.get(id) != Some(now) && !is_app(&app, id) {
+                    watch_exit(now.iter().copied().collect());
+                    watched.insert(id.clone(), now.clone());
+                }
+            }
+            watched.retain(|id, _| alive.contains(id));
             *PIDS.lock().unwrap() = pids;
 
             for id in &alive {
                 match sessions.get_mut(id) {
-                    Some(s) => s.misses = 0,
+                    Some(s) => s.gone = None,
                     None => {
                         let from_mantel = started(&app, id);
-                        sessions.insert(id.clone(), Session { since: Instant::now(), misses: 0, from_mantel });
+                        sessions.insert(id.clone(), Session { since: Instant::now(), gone: None, from_mantel });
                     }
                 }
             }
             let closed = std::mem::take(&mut *CLOSED.lock().unwrap());
             let mut ended = Vec::new();
             for (id, s) in sessions.iter_mut().filter(|(id, _)| !alive.contains(*id)) {
-                s.misses += 1;
-                if s.misses >= GRACE_POLLS || closed.contains(id) {
+                let gone = *s.gone.get_or_insert_with(Instant::now);
+                if gone.elapsed() >= GRACE || closed.contains(id) {
                     ended.push(id.clone());
                 }
             }
@@ -609,10 +703,10 @@ fn started(app: &AppHandle, id: &str) -> bool {
 }
 
 fn finish(app: &AppHandle, id: &str, session: &Session) {
-    wind_down(id);
+    let big_picture = wind_down(id);
     let state = app.state::<AppState>();
-    // The game was gone for every missed poll.
-    let seconds = session.since.elapsed().as_secs().saturating_sub(POLL.as_secs() * session.misses as u64);
+    // Played until it was first seen gone.
+    let seconds = session.gone.unwrap_or_else(Instant::now).saturating_duration_since(session.since).as_secs();
     let an_app = is_app(app, id);
     // A game that didn't stay, like one refused its license at launch, hasn't been played.
     // Time in an app isn't playtime, but when it was last used orders the Apps tab.
@@ -649,6 +743,10 @@ fn finish(app: &AppHandle, id: &str, session: &Session) {
         let name = state.cache.lock().unwrap().library.iter().find(|g| g.id == id).map(|g| g.name.clone()).unwrap_or_default();
         let app = app.clone();
         std::thread::spawn(move || {
+            // Big Picture goes first, so Mantel doesn't come up only to be covered by it.
+            if big_picture {
+                wait_big_picture_closed();
+            }
             let (mut sys, start) = (System::new(), Instant::now());
             while start.elapsed() < SPLASH_WAIT && !splash_of(&mut sys, &name).is_empty() {
                 std::thread::sleep(Duration::from_secs(1));
@@ -697,7 +795,35 @@ pub fn to_front(app: &AppHandle) {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
+        #[cfg(windows)]
+        if let Ok(hwnd) = w.hwnd() {
+            take_foreground(hwnd.0 as _);
+        }
         crate::tray::away(&w, false);
+    }
+}
+
+/// Windows lets a program in the background take the front only from the one in front, so
+/// Mantel borrows that one's input for the moment it brings its window up: after a game, the
+/// front is usually Steam's or the game's leftover window, and the player is sent back to
+/// Mantel the way they asked when they started the game from it.
+#[cfg(windows)]
+fn take_foreground(hwnd: windows_sys::Win32::Foundation::HWND) {
+    use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow};
+    unsafe {
+        let front = GetForegroundWindow();
+        if front == hwnd {
+            return;
+        }
+        let theirs = GetWindowThreadProcessId(front, std::ptr::null_mut());
+        let ours = GetCurrentThreadId();
+        let attached = theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, 1) != 0;
+        BringWindowToTop(hwnd);
+        SetForegroundWindow(hwnd);
+        if attached {
+            AttachThreadInput(ours, theirs, 0);
+        }
     }
 }
 
