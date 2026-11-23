@@ -217,12 +217,9 @@ mod controls {
 }
 
 pub fn action(app: &AppHandle, action: &str) -> Result<(), String> {
-    let shutdown = |args: &[&str]| {
-        std::process::Command::new("shutdown").args(args).spawn().map(|_| ()).map_err(|e| e.to_string())
-    };
     match action {
-        "shutdown" => shutdown(&["/s", "/t", "0"]),
-        "restart" => shutdown(&["/r", "/t", "0"]),
+        "shutdown" => power_off(false),
+        "restart" => power_off(true),
         "desktop" => {
             // In the full screen experience there is no desktop under us until Windows switches to it.
             if crate::fse::active() && !crate::fse::switch(false) {
@@ -241,4 +238,50 @@ pub fn action(app: &AppHandle, action: &str) -> Result<(), String> {
         }
         other => Err(format!("unknown action {other}")),
     }
+}
+
+/// Powers the PC off or restarts it the way the Start menu does: asked of Windows directly, with
+/// no program run for it, so other programs get to close as usual (nothing is forced).
+#[cfg(windows)]
+fn power_off(restart: bool) -> Result<(), String> {
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, LUID};
+    use windows_sys::Win32::Security::{AdjustTokenPrivileges, LookupPrivilegeValueW, LUID_AND_ATTRIBUTES, SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_QUERY};
+    use windows_sys::Win32::System::Shutdown::{InitiateShutdownW, SHTDN_REASON_FLAG_PLANNED, SHTDN_REASON_MAJOR_OTHER, SHTDN_REASON_MINOR_OTHER, SHUTDOWN_POWEROFF, SHUTDOWN_RESTART};
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    unsafe {
+        // Every program may shut Windows down, but has to switch that right on for itself first.
+        let mut token: HANDLE = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &mut token) == 0 {
+            return Err(format!("Windows didn't allow shutting down ({})", GetLastError()));
+        }
+        let name: Vec<u16> = "SeShutdownPrivilege".encode_utf16().chain(Some(0)).collect();
+        let mut luid = LUID { LowPart: 0, HighPart: 0 };
+        let mut ok = LookupPrivilegeValueW(std::ptr::null(), name.as_ptr(), &mut luid) != 0;
+        if ok {
+            let tp = TOKEN_PRIVILEGES { PrivilegeCount: 1, Privileges: [LUID_AND_ATTRIBUTES { Luid: luid, Attributes: SE_PRIVILEGE_ENABLED }] };
+            ok = AdjustTokenPrivileges(token, 0, &tp, 0, std::ptr::null_mut(), std::ptr::null_mut()) != 0 && GetLastError() == 0;
+        }
+        CloseHandle(token);
+        if !ok {
+            return Err(format!("Windows didn't allow shutting down ({})", GetLastError()));
+        }
+        let how = if restart { SHUTDOWN_RESTART } else { SHUTDOWN_POWEROFF };
+        let why = SHTDN_REASON_MAJOR_OTHER | SHTDN_REASON_MINOR_OTHER | SHTDN_REASON_FLAG_PLANNED;
+        match InitiateShutdownW(std::ptr::null(), std::ptr::null(), 0, how, why) {
+            0 => Ok(()),
+            e => Err(format!("Windows didn't shut down ({e})")),
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn power_off(_restart: bool) -> Result<(), String> {
+    Err("Powering off works on Windows only".into())
+}
+
+/// A program of Windows' own by its full path, so nothing else of that name is run instead.
+#[cfg(windows)]
+pub fn windows_program(name: &str) -> std::path::PathBuf {
+    let dir = std::env::var_os("SystemRoot").map(std::path::PathBuf::from).unwrap_or_else(|| "C:\\Windows".into());
+    dir.join(name)
 }

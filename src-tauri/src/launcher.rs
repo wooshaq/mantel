@@ -109,6 +109,7 @@ const RECHECK: Duration = Duration::from_millis(500);
 /// Wakes the tracker before its next poll: a game's process ended.
 static WAKE: (Mutex<bool>, std::sync::Condvar) = (Mutex::new(false), std::sync::Condvar::new());
 
+#[cfg_attr(not(windows), allow(dead_code))]
 fn wake() {
     *WAKE.0.lock().unwrap() = true;
     WAKE.1.notify_one();
@@ -1035,7 +1036,7 @@ pub fn open_external(uri: &str) -> Result<(), String> {
 
 pub fn open_folder(path: &str) -> Result<(), String> {
     #[cfg(windows)]
-    let cmd = "explorer.exe";
+    let cmd = crate::system::windows_program("explorer.exe");
     #[cfg(not(windows))]
     let cmd = "open";
     std::process::Command::new(cmd).arg(PathBuf::from(path)).spawn().map(|_| ()).map_err(|e| e.to_string())

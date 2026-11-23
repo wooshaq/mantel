@@ -57,6 +57,9 @@ windows-sys = { version = "0.60", features = [
   "Win32_System_Com",
   "Win32_System_LibraryLoader",
   "Win32_System_Power",
+  # Power off and restart through Windows itself, without running shutdown.exe.
+  "Win32_Security",
+  "Win32_System_Shutdown",
   "Win32_System_Registry",
   "Win32_System_Threading",
   "Win32_System_Time",
