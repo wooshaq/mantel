@@ -240,13 +240,39 @@ pub fn action(app: &AppHandle, action: &str) -> Result<(), String> {
     }
 }
 
-/// Powers the PC off or restarts it the way the Start menu does: asked of Windows directly, with
-/// no program run for it, so other programs get to close as usual (nothing is forced).
+/// Powers the PC off or restarts it, forced: Windows' own shutdown.exe, from System32 by its full
+/// path (never a program of that name found elsewhere), with fixed arguments and no console.
+/// Running programs are closed without asking, games included. Should Windows refuse to start
+/// it, the same is asked of Windows directly.
 #[cfg(windows)]
 fn power_off(restart: bool) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    // /s power off or /r restart, /f close programs without asking, /t 0 at once.
+    let args: [&str; 4] = [if restart { "/r" } else { "/s" }, "/f", "/t", "0"];
+    let exe = system_dir().join("shutdown.exe");
+    let run = std::process::Command::new(&exe)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn();
+    match run {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            crate::log::warn(&format!("power: {} didn't start ({e}), asking Windows directly", exe.display()));
+            initiate_shutdown(restart)
+        }
+    }
+}
+
+/// The same, asked of Windows directly, forced as well.
+#[cfg(windows)]
+fn initiate_shutdown(restart: bool) -> Result<(), String> {
     use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, LUID};
     use windows_sys::Win32::Security::{AdjustTokenPrivileges, LookupPrivilegeValueW, LUID_AND_ATTRIBUTES, SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_QUERY};
-    use windows_sys::Win32::System::Shutdown::{InitiateShutdownW, SHTDN_REASON_FLAG_PLANNED, SHTDN_REASON_MAJOR_OTHER, SHTDN_REASON_MINOR_OTHER, SHUTDOWN_POWEROFF, SHUTDOWN_RESTART};
+    use windows_sys::Win32::System::Shutdown::{InitiateShutdownW, SHTDN_REASON_FLAG_PLANNED, SHTDN_REASON_MAJOR_OTHER, SHTDN_REASON_MINOR_OTHER, SHUTDOWN_FORCE_OTHERS, SHUTDOWN_POWEROFF, SHUTDOWN_RESTART};
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
     unsafe {
         // Every program may shut Windows down, but has to switch that right on for itself first.
@@ -265,7 +291,7 @@ fn power_off(restart: bool) -> Result<(), String> {
         if !ok {
             return Err(format!("Windows didn't allow shutting down ({})", GetLastError()));
         }
-        let how = if restart { SHUTDOWN_RESTART } else { SHUTDOWN_POWEROFF };
+        let how = (if restart { SHUTDOWN_RESTART } else { SHUTDOWN_POWEROFF }) | SHUTDOWN_FORCE_OTHERS;
         let why = SHTDN_REASON_MAJOR_OTHER | SHTDN_REASON_MINOR_OTHER | SHTDN_REASON_FLAG_PLANNED;
         match InitiateShutdownW(std::ptr::null(), std::ptr::null(), 0, how, why) {
             0 => Ok(()),
@@ -279,9 +305,26 @@ fn power_off(_restart: bool) -> Result<(), String> {
     Err("Powering off works on Windows only".into())
 }
 
-/// A program of Windows' own by its full path, so nothing else of that name is run instead.
+/// System32, as Windows itself reports it: not from an environment variable another program
+/// could have set.
+#[cfg(windows)]
+fn system_dir() -> std::path::PathBuf {
+    use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
+    let mut buf = [0u16; 260];
+    let n = unsafe { GetSystemDirectoryW(buf.as_mut_ptr(), buf.len() as u32) } as usize;
+    if n == 0 || n >= buf.len() {
+        return "C:\\Windows\\System32".into();
+    }
+    std::path::PathBuf::from(String::from_utf16_lossy(&buf[..n]))
+}
+
+/// A program of Windows' own in the Windows folder, by its full path, so nothing else of that
+/// name is run instead. The folder is the one Windows itself reports.
 #[cfg(windows)]
 pub fn windows_program(name: &str) -> std::path::PathBuf {
-    let dir = std::env::var_os("SystemRoot").map(std::path::PathBuf::from).unwrap_or_else(|| "C:\\Windows".into());
-    dir.join(name)
+    use windows_sys::Win32::System::SystemInformation::GetWindowsDirectoryW;
+    let mut buf = [0u16; 260];
+    let n = unsafe { GetWindowsDirectoryW(buf.as_mut_ptr(), buf.len() as u32) } as usize;
+    let dir = if n == 0 || n >= buf.len() { "C:\\Windows".into() } else { String::from_utf16_lossy(&buf[..n]) };
+    std::path::PathBuf::from(dir).join(name)
 }
