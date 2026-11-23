@@ -20,7 +20,9 @@ TV PC.
   per-store setup.
 - **Controller first.** Every screen works with the gamepad, the touchscreen or a keyboard.
   The control center (≡) sets volume and brightness, shows Wi-Fi and battery, closes
-  games, restarts or powers off the device. Several games and programs can run at once;
+  games, restarts or powers off the device. Power off and restart are forced by default
+  (Windows' `shutdown.exe /s /f /t 0`); their switches can be changed in Settings → System,
+  limited to shutdown's own switches for this PC. Several games and programs can run at once;
   each one closes from its own card.
 - **Playtime that adds up.** Mantel times every session itself, games started outside it
   included, and takes Steam's own playtime from its files.

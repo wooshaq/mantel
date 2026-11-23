@@ -4,6 +4,7 @@ import { SourceIcon } from "../components/Glyph";
 import { useHints } from "../components/Hints";
 import { AddGame } from "../components/AddGame";
 import { KeyFlow } from "../components/KeyFlow";
+import { TextPrompt } from "../components/TextPrompt";
 import { useScrollFocus } from "../hooks";
 import { Layer, useInput } from "../input";
 import { errorText, LANGUAGES, t } from "../i18n";
@@ -17,7 +18,7 @@ type Row =
   | { kind: "button"; id: string; label: string; sub?: string; value?: string; icon?: Icon; soon?: boolean; run: () => void };
 
 type Icon = Source | "art";
-type Flow = "steamid" | "sgdb" | "add" | null;
+type Flow = "steamid" | "sgdb" | "add" | "poweroff" | "restart" | null;
 type Category = "library" | "interface" | "system";
 
 const CATEGORIES: [Category, string, React.ReactNode][] = [
@@ -226,6 +227,22 @@ export function Settings({ active }: { active: boolean }) {
     },
     {
       kind: "button",
+      id: "poweroff",
+      label: t("Power off switches"),
+      sub: t("What Power off passes to shutdown.exe; empty is /s /f /t 0, closing programs without asking"),
+      value: settings.powerOffArgs || "/s /f /t 0",
+      run: () => setFlow("poweroff"),
+    },
+    {
+      kind: "button",
+      id: "restart",
+      label: t("Restart switches"),
+      sub: t("What Restart passes to shutdown.exe; empty is /r /f /t 0"),
+      value: settings.restartArgs || "/r /f /t 0",
+      run: () => setFlow("restart"),
+    },
+    {
+      kind: "button",
       id: "setup",
       label: t("Run setup again"),
       sub: t("Language, games and how the handheld starts, step by step"),
@@ -324,6 +341,25 @@ export function Settings({ active }: { active: boolean }) {
           </div>
         </div>
         {flow === "add" && <AddGame onClose={() => setFlow(null)} />}
+        {(flow === "poweroff" || flow === "restart") && (
+          <TextPrompt
+            title={flow === "poweroff" ? t("Power off switches") : t("Restart switches")}
+            hint={t("For example /s /f /t 0 or -s -hybrid -t 5 (a dash works like /). Leave empty for the default.")}
+            initial={flow === "poweroff" ? settings.powerOffArgs : settings.restartArgs}
+            onDone={async (v) => {
+              const which = flow;
+              if (v === null) return setFlow(null);
+              try {
+                await api.checkPowerArgs(v);
+              } catch {
+                toast(t("Mantel passes on only shutdown's switches for this PC: /s /r /g /h /p /l /a /hybrid /fw /o /soft /f /t seconds /d reason"), "warn");
+                return false;
+              }
+              setFlow(null);
+              await patch(which === "poweroff" ? { powerOffArgs: v } : { restartArgs: v });
+            }}
+          />
+        )}
         {flow === "steamid" && (
           <KeyFlow
             kind="profile"

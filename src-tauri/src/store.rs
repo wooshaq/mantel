@@ -46,6 +46,9 @@ pub struct Settings {
     pub hdr_method: crate::hdr::Method,
     /// An icon in the notification area; minimizing or closing the window hides it there.
     pub tray: bool,
+    /// shutdown.exe's switches for Power off and Restart; empty takes the forced defaults.
+    pub power_off_args: String,
+    pub restart_args: String,
 }
 
 impl Default for Settings {
@@ -62,6 +65,8 @@ impl Default for Settings {
             big_picture: false,
             hdr_method: crate::hdr::Method::Windows,
             tray: false,
+            power_off_args: String::new(),
+            restart_args: String::new(),
         }
     }
 }

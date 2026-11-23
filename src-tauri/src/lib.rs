@@ -1155,6 +1155,12 @@ fn full_screen_mode() -> fse::Mode {
     fse::mode()
 }
 
+/// Checks Settings' switches for shutdown.exe; the reason when they won't do.
+#[tauri::command]
+fn check_power_args(text: String) -> Result<(), String> {
+    system::shutdown_args(&text, false).map(|_| ())
+}
+
 #[tauri::command]
 fn power_action(app: AppHandle, action: String) -> Result<(), String> {
     system::action(&app, &action)
@@ -1262,6 +1268,7 @@ pub fn run() {
             open_game_folder,
             power_status,
             power_action,
+            check_power_args,
             quick_status,
             set_volume,
             set_muted,

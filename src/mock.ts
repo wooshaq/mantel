@@ -216,6 +216,8 @@ let settings: Settings = {
   bigPicture: false,
   hdrMethod: "windows",
   tray: false,
+  powerOffArgs: "",
+  restartArgs: "",
 };
 
 /** Sample profile: in the app this is the account Steam signed in with on the PC. */
@@ -557,6 +559,9 @@ export const mockApi: Api = {
     await wait(600);
     quick = { ...quick, display: quick.display === "internal" ? "external" : "internal" };
     return quick.display!;
+  },
+  async checkPowerArgs(text) {
+    if (text.trim() && !/^(\s*[/-](s|r|g|sg|h|p|l|hybrid|fw|o|soft|f|a|t \d+|d [pu]?:?\d+:\d+))+\s*$/i.test(text)) throw "bad switches";
   },
   async powerAction(action) {
     console.info("[mock] power action", action);

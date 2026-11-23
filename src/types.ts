@@ -211,6 +211,9 @@ export interface Settings {
   hdrMethod: "windows" | "nvidia";
   /** Icon in the notification area; minimizing or closing hides Mantel there. */
   tray: boolean;
+  /** shutdown.exe's switches for Power off and Restart; "" takes the forced defaults. */
+  powerOffArgs: string;
+  restartArgs: string;
 }
 
 /** The Steam profile achievements are read from. */

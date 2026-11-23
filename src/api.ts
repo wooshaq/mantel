@@ -93,6 +93,8 @@ export interface Api {
   setMuted(muted: boolean): Promise<void>;
   setBrightness(level: number): Promise<void>;
   powerAction(action: "shutdown" | "restart" | "desktop" | "fullscreen" | "quit"): Promise<void>;
+  /** Checks switches for shutdown.exe; rejects when Mantel won't pass them on. */
+  checkPowerArgs(text: string): Promise<void>;
   /** Windows' full screen experience (Xbox mode): whether it's on and whether we can toggle it. */
   fullScreenMode(): Promise<FullScreenMode>;
   getAutostart(): Promise<boolean>;
@@ -180,6 +182,7 @@ const tauriApi: Api = {
   setMuted: (muted) => call("set_muted", { muted }),
   setBrightness: (level) => call("set_brightness", { level }),
   powerAction: (action) => call("power_action", { action }),
+  checkPowerArgs: (text) => call("check_power_args", { text }),
   fullScreenMode: () => call("full_screen_mode"),
   async getAutostart() {
     const { isEnabled } = await import("@tauri-apps/plugin-autostart");

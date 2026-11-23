@@ -217,9 +217,10 @@ mod controls {
 }
 
 pub fn action(app: &AppHandle, action: &str) -> Result<(), String> {
+    let settings = app.state::<crate::store::AppState>().user.lock().unwrap().settings.clone();
     match action {
-        "shutdown" => power_off(false),
-        "restart" => power_off(true),
+        "shutdown" => power_off(false, &settings.power_off_args),
+        "restart" => power_off(true, &settings.restart_args),
         "desktop" => {
             // In the full screen experience there is no desktop under us until Windows switches to it.
             if crate::fse::active() && !crate::fse::switch(false) {
@@ -240,16 +241,77 @@ pub fn action(app: &AppHandle, action: &str) -> Result<(), String> {
     }
 }
 
+/// shutdown.exe's switches when Settings leave them empty: /s power off or /r restart, /f close
+/// programs without asking, /t 0 at once.
+pub fn default_shutdown_args(restart: bool) -> Vec<String> {
+    [if restart { "/r" } else { "/s" }, "/f", "/t", "0"].map(String::from).to_vec()
+}
+
+/// The switches shutdown.exe may get from Settings: what it does to this PC and when. Left out
+/// are those that reach other PCs (/m), take free text (/c), open its window (/i) or are only
+/// for administrators (/e).
+const SHUTDOWN_SWITCHES: &[&str] = &["s", "r", "g", "sg", "h", "p", "l", "hybrid", "fw", "o", "soft", "f", "t", "d", "a"];
+/// Switches that say what happens; one of them is needed.
+const SHUTDOWN_ACTIONS: &[&str] = &["s", "r", "g", "sg", "h", "p", "l", "a"];
+
+/// Settings' switches for shutdown.exe, checked one by one: only known switches, a number of
+/// seconds after /t, a reason code after /d. Empty gives the defaults.
+pub fn shutdown_args(text: &str, restart: bool) -> Result<Vec<String>, String> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.is_empty() {
+        return Ok(default_shutdown_args(restart));
+    }
+    if words.len() > 10 {
+        return Err("Too many switches".into());
+    }
+    let mut out = Vec::new();
+    let mut action = false;
+    let mut it = words.into_iter();
+    while let Some(w) = it.next() {
+        let name = w.strip_prefix('/').or_else(|| w.strip_prefix('-')).map(|n| n.to_ascii_lowercase());
+        let Some(name) = name.filter(|n| SHUTDOWN_SWITCHES.contains(&n.as_str())) else {
+            return Err(format!("\"{w}\" isn't a switch Mantel passes on"));
+        };
+        action |= SHUTDOWN_ACTIONS.contains(&name.as_str());
+        out.push(format!("/{name}"));
+        match name.as_str() {
+            "t" => {
+                let v = it.next().filter(|v| v.parse::<u32>().is_ok_and(|n| n <= 315_360_000)).ok_or("/t needs a number of seconds")?;
+                out.push(v.to_string());
+            }
+            "d" => {
+                let v = it.next().filter(|v| reason_code(v)).ok_or("/d needs a reason such as p:0:0")?;
+                out.push(v.to_ascii_lowercase());
+            }
+            _ => {}
+        }
+    }
+    if !action {
+        return Err("Add what to do: /s, /r, /h…".into());
+    }
+    Ok(out)
+}
+
+/// shutdown.exe's reason: [p|u:]major:minor, in numbers.
+fn reason_code(v: &str) -> bool {
+    let v = v.to_ascii_lowercase();
+    let v = v.strip_prefix("p:").or_else(|| v.strip_prefix("u:")).unwrap_or(&v).to_string();
+    let parts: Vec<&str> = v.split(':').collect();
+    parts.len() == 2 && parts.iter().all(|p| !p.is_empty() && p.len() <= 5 && p.chars().all(|c| c.is_ascii_digit()))
+}
+
 /// Powers the PC off or restarts it, forced: Windows' own shutdown.exe, from System32 by its full
 /// path (never a program of that name found elsewhere), with fixed arguments and no console.
 /// Running programs are closed without asking, games included. Should Windows refuse to start
 /// it, the same is asked of Windows directly.
 #[cfg(windows)]
-fn power_off(restart: bool) -> Result<(), String> {
+fn power_off(restart: bool, custom: &str) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    // /s power off or /r restart, /f close programs without asking, /t 0 at once.
-    let args: [&str; 4] = [if restart { "/r" } else { "/s" }, "/f", "/t", "0"];
+    let args = shutdown_args(custom, restart).unwrap_or_else(|e| {
+        crate::log::warn(&format!("power: the switches in Settings aren't used: {e}"));
+        default_shutdown_args(restart)
+    });
     let exe = system_dir().join("shutdown.exe");
     let run = std::process::Command::new(&exe)
         .args(args)
@@ -301,7 +363,7 @@ fn initiate_shutdown(restart: bool) -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-fn power_off(_restart: bool) -> Result<(), String> {
+fn power_off(_restart: bool, _custom: &str) -> Result<(), String> {
     Err("Powering off works on Windows only".into())
 }
 
@@ -327,4 +389,23 @@ pub fn windows_program(name: &str) -> std::path::PathBuf {
     let n = unsafe { GetWindowsDirectoryW(buf.as_mut_ptr(), buf.len() as u32) } as usize;
     let dir = if n == 0 || n >= buf.len() { "C:\\Windows".into() } else { String::from_utf16_lossy(&buf[..n]) };
     std::path::PathBuf::from(dir).join(name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shutdown_switches_from_settings() {
+        assert_eq!(shutdown_args("", false).unwrap(), ["/s", "/f", "/t", "0"]);
+        assert_eq!(shutdown_args("  ", true).unwrap(), ["/r", "/f", "/t", "0"]);
+        assert_eq!(shutdown_args("/s /hybrid /F -t 5", false).unwrap(), ["/s", "/hybrid", "/f", "/t", "5"]);
+        assert_eq!(shutdown_args("/r /d P:4:1", true).unwrap(), ["/r", "/d", "p:4:1"]);
+        assert!(shutdown_args("/s /m \\\\pc", false).is_err());
+        assert!(shutdown_args("/s /c hello", false).is_err());
+        assert!(shutdown_args("/s & calc", false).is_err());
+        assert!(shutdown_args("/s /t soon", false).is_err());
+        assert!(shutdown_args("/f /t 0", false).is_err());
+        assert!(shutdown_args("/d p:x:1 /s", false).is_err());
+    }
 }
